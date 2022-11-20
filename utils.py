@@ -131,20 +131,38 @@ def list_subfolders(dir: str, recursive: bool = True):
                 yield f.path
 
 
-def list_files(dir: str, ext: list = None, recursive: bool = True):
+def list_files(
+    dir: str, ext: list = None, recursive: bool = True, excludes: list = None
+):
     """
     Args:
         - dir, directory path.
         - ext, file extension list, lowercase letters. Default is None, which means all files.
         - recursive, Default is True, will list files in subfolders.
+        - excludes, exclude folder or file name list, regexp pattern string. Default is None, which means all folders
 
     Tips:
         - How to get relative path of a file: os.path.relpath(file_path, dir_path)
+        - How to get only name of a file: os.path.basename(file_path)
+
+    Version:
+        v0.2.0
+        https://gist.github.com/nodewee/eae12e2b74beb82162b8b488648f1fdd
     """
+
     for f in os.scandir(dir):
+        if excludes:
+            is_ignore = False
+            for pat in excludes:
+                if re.search(pat, f.name):
+                    is_ignore = True
+                    break
+            if is_ignore:
+                continue
+
         if recursive:
             if f.is_dir():
-                for item in list_files(f.path, ext, recursive):
+                for item in list_files(f.path, ext, recursive, excludes):
                     yield item
 
         if f.is_file():

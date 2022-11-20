@@ -14,7 +14,12 @@ from add_spaces import add_spaces_to_content
 from utils import get_file_creation_time, list_files, list_subfolders, time_to_readable
 
 
-def prepare_attachments(obsidian_vault_path, hugo_static_path, hugo_post_folder_name):
+def prepare_attachments(
+    obsidian_vault_path,
+    hugo_static_path,
+    hugo_post_folder_name,
+    exclude_files: list = [r"^\."],
+):
     """
     Return: attachment file path mapping
         = {src_file_path: [slug_path], ...}
@@ -31,10 +36,14 @@ def prepare_attachments(obsidian_vault_path, hugo_static_path, hugo_post_folder_
         ob_attach_dir_rel_path = os.path.relpath(
             ob_attach_dir_abs_path, obsidian_vault_path
         )
-        for src_file_path in list_files(ob_attach_dir_abs_path):
-            src_file_name = os.path.basename(src_file_path)
 
-            dest_file_name = slugify(add_spaces_to_content(src_file_name))
+        for src_file_path in list_files(ob_attach_dir_abs_path, excludes=exclude_files):
+            src_file_name = os.path.basename(src_file_path)
+            file_name_parts = os.path.splitext(src_file_name)
+
+            dest_file_name = (
+                slugify(add_spaces_to_content(file_name_parts[0])) + file_name_parts[1]
+            )
 
             # copy file to hugo static dir
             dest_file_path = os.path.join(
