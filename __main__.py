@@ -7,29 +7,41 @@ import o2h
 
 def main(
     obsidian_vault: str,
-    obsidian_note_folders: str,
     hugo_project: str,
-    hugo_posts_folder,
+    folders: str = None,
 ):
     """
-    O2H v0.1.0
+    O2H v0.2.0
 
     Convert notes from Obsidian vault to Hugo content posts.
-    Example: python o2h "path/to/obsidian/vault" "publish,drafts" "path/to/hugo/project" "posts"
+
+    Args:
+    - folders:
+        - Default is None that means convert all folders in Obsidian vault, and same folder name to Hugo content
+        - Or specified Obsidian note folders
+        - Or specified Obsidian note folders and destination folder names in Hugo content
+
+    Example:
+        - `python3 o2h "path/to/obsidian/vault" "path/to/hugo/project"`
+        - `python3 o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders=posts,drafts`
+        - `python3 o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders=a>posts,b>articles`
+
     """
 
-    obsidian_note_folders_list = []
-    for s in obsidian_note_folders.split(","):
-        if not s:
-            continue
-        obsidian_note_folders_list.append(s.strip())
+    folder_name_map = {}  # {src_folder:dest_folder}
+    if folders:
+        for item in folders.split(","):
+            item = item.strip()
+            if not item:
+                continue
 
-    o2h.convert(
-        obsidian_vault,
-        hugo_project,
-        obsidian_note_folders_list,
-        hugo_posts_folder,
-    )
+            if ">" not in item:
+                folder_name_map[item] = item
+            else:
+                arr = item.split(">")
+                folder_name_map[arr[0]] = arr[1]
+
+    o2h.convert(obsidian_vault, hugo_project, folder_name_map)
 
 
 if __name__ == "__main__":
