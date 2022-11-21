@@ -114,7 +114,7 @@ class ImgSrcParser(html.parser.HTMLParser):
                 self.imgs = itertools.chain(self.imgs, [value])
 
 
-def list_subfolders(dir: str, recursive: bool = True):
+def list_subfolders(dir: str, recursive: bool = True, excludes: list = None):
     """
     Args:
         - dir, directory path.
@@ -124,11 +124,20 @@ def list_subfolders(dir: str, recursive: bool = True):
         - How to get relative path of a folder: os.path.relpath(subfolder_path, dir_path)
     """
     for f in os.scandir(dir):
-        if recursive:
-            if f.is_dir():
+        if excludes:
+            is_ignore = False
+            for pat in excludes:
+                if re.search(pat, f.name):
+                    is_ignore = True
+                    break
+            if is_ignore:
+                continue
+
+        if f.is_dir():
+            if recursive:
                 for item in list_subfolders(f.path, recursive):
                     yield item
-                yield f.path
+            yield f.path
 
 
 def list_files(
