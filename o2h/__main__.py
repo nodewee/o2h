@@ -2,7 +2,7 @@
 
 import fire
 
-import o2h
+from o2h import converter
 
 
 def cli(
@@ -42,7 +42,7 @@ def cli(
                 folder_name_map[arr[0]] = arr[1]
 
     try:
-        o2h.convert(obsidian_vault, hugo_project, folder_name_map)
+        converter.convert(obsidian_vault, hugo_project, folder_name_map)
     except Exception as e:
         print(f"ERROR: {e}")
 

@@ -137,7 +137,12 @@ def prepare_notes_specified(
                 )
 
             # if post slug specified in frontmatter, use it
-            post = frontmatter.load(file_abs_path)
+            try:
+                post = frontmatter.load(file_abs_path)
+            except Exception as e:
+                raise Exception(
+                    f"{str(e)}\nMaybe invalid front matter of {file_abs_path}"
+                )
             slug = post.metadata.get("slug", "").strip()
             if slug:
                 slug_path_parts[-1] = slug
