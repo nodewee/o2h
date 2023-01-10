@@ -5,7 +5,7 @@ import fire
 import o2h
 
 
-def main(
+def cli(
     obsidian_vault: str,
     hugo_project: str,
     folders: str = None,
@@ -41,8 +41,11 @@ def main(
                 arr = item.split(">")
                 folder_name_map[arr[0]] = arr[1]
 
-    o2h.convert(obsidian_vault, hugo_project, folder_name_map)
+    try:
+        o2h.convert(obsidian_vault, hugo_project, folder_name_map)
+    except Exception as e:
+        print(f"ERROR: {e}")
 
 
 if __name__ == "__main__":
-    fire.Fire(main)
+    fire.Fire(cli)

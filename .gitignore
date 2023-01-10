@@ -12,3 +12,4 @@
 **/*.lock
 
 **/tmp.*
+.pdm.toml

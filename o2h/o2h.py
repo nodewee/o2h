@@ -209,9 +209,8 @@ def convert_notes_to_posts(
         try:
             post = frontmatter.load(note_file)
         except Exception as e:
-            print(f"Error: {e}")
             print(note_file)
-            exit(1)
+            raise ValueError(f"Error: {e}")
 
         # prepare frontmatter. https://gohugo.io/content-management/front-matter/
         metadata = post.metadata
@@ -263,7 +262,7 @@ def clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir):
     inputstr = input("Confirm to continue (y/N)")
     if inputstr.lower() not in ["y", "yes"]:
         print("Canceled")
-        exit(0)
+        raise InterruptedError("Canceld")
 
     shutil.rmtree(dest_attachment_dir, ignore_errors=True)
     os.makedirs(dest_attachment_dir, exist_ok=True)
