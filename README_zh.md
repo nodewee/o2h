@@ -1,5 +1,7 @@
 ## O2H
 
+🌐 [English](README.md) | [中文](README_zh.md)
+
 将 **O**bsidian .md 转换成 **H**ugo .md
 
 ## 功能

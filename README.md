@@ -1,5 +1,7 @@
 ## O2H
 
+🌐 [English](README.md) | [中文](README_zh.md)
+
 Convert notes from **O**bsidian vault **to** **H**ugo content posts
 
 ## Features
