@@ -42,7 +42,7 @@ def cli(
                 folder_name_map[arr[0]] = arr[1]
 
     try:
-        converter.convert(obsidian_vault, hugo_project, folder_name_map)
+        converter.handle(obsidian_vault, hugo_project, folder_name_map)
     except Exception as e:
         print(f"ERROR: {e}")
 

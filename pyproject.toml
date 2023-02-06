@@ -1,10 +1,8 @@
 [project]
 name = "o2h"
-version = "0.2.0"
+version = "0.3.0"
 description = "Convert notes from Obsidian vault to Hugo content posts"
-authors = [
-    {name = "NodeWee", email = "nodewee@gmail.com"},
-]
+authors = [{ name = "NodeWee", email = "nodewee@gmail.com" }]
 dependencies = [
     "fire>=0.4.0",
     "python-frontmatter>=1.0.0",
@@ -12,10 +10,11 @@ dependencies = [
 ]
 requires-python = ">=3.9"
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 
 [build-system]
 requires = ["pdm-pep517>=1.0.0"]
 build-backend = "pdm.pep517.api"
 
-[tool.pdm]
+[tool.pdm.scripts]
+format = "isort --profile black . && black ."

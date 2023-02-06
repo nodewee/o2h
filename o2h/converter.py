@@ -8,164 +8,142 @@ import shutil
 import urllib.parse
 
 import frontmatter
-from slugify import slugify
-
 from add_spaces import add_spaces_to_content
-from utils import get_file_creation_time, list_files, list_subfolders, time_to_readable
+from slugify import slugify
+from utils import (
+    get_file_creation_time,
+    get_file_modification_time,
+    time_to_readable,
+    yield_files,
+    yield_subfolders,
+)
 
 
-def prepare_attachments(
-    obsidian_vault_path: dict,
-    dest_attachment_dir: str,
-    dest_attachment_uri: str,
-    exclude_files: list = [r"^\."],
-):
-    """
-    Return: attachment file path mapping
-        = {src_file_path: [slug_path], ...}
-    """
-    tmpfile = str(pathlib.Path(obsidian_vault_path, ".obsidian/app.json").absolute())
-    tmp = open(tmpfile).read()
-    attachment_dirname = json.loads(tmp).get("attachmentFolderPath")
-
-    attachment_indexes = {}
-    for ob_attach_dir_abs_path in list_subfolders(
-        obsidian_vault_path, excludes=exclude_files
-    ):
-        if f"/{attachment_dirname}" not in ob_attach_dir_abs_path:
-            # filter out attachments folders
-            continue
-        ob_attach_dir_rel_path = os.path.relpath(
-            ob_attach_dir_abs_path, obsidian_vault_path
-        )
-
-        for src_file_path in list_files(ob_attach_dir_abs_path, excludes=exclude_files):
-            src_file_name = os.path.basename(src_file_path)
-            file_name_parts = os.path.splitext(src_file_name)
-
-            dest_file_name = (
-                slugify(add_spaces_to_content(file_name_parts[0])) + file_name_parts[1]
-            )
-
-            # copy file to hugo static dir
-            dest_file_path = os.path.join(dest_attachment_dir, dest_file_name)
-            shutil.copyfile(src_file_path, dest_file_path)
-
-            # store link mapping
-            src_file_rel_path = os.path.join(ob_attach_dir_rel_path, src_file_name)
-            slug_uri = f"{dest_attachment_uri}/" + dest_file_name
-            attachment_indexes[src_file_rel_path.lower()] = [slug_uri]
-
-    print(f"{len(attachment_indexes)} attachments copied.")
-    return attachment_indexes
-
-
-def prepare_notes_all(
-    obsidian_vault_path: str,
-    hugo_project_path: str,
-    exclude_dirs=[],
+def handle(
+    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict = None
 ):
     """
     Args:
-        - exclude_dirs, relative path in the vault
-
-    Returns: note file path mapping
-        = {src_file_path:[slug_path, quoted_path], ...}
+    - obsidian_note_folder_names, if not specified, all notes (exclude "drafts" and "template" folder) in the vault will be converted
+    - hugo_post_folder_name, destination folder in hugo project content directory. default is "posts"
+    - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
     """
 
-    print("Prepare all notes ...", flush=True)
+    # 1st check folders
+    _check_folders(obsidian_vault_path, hugo_project_path, folder_name_map)
 
-    # excludes templates folder
+    # 2nd parse notes
+    folders_map = _prepare_folder_map(
+        obsidian_vault_path, hugo_project_path, folder_name_map
+    )
+
+    # 3rd parse notes
+    note_files_map, inline_links = _parse_obsidian_notes(
+        obsidian_vault_path, folders_map
+    )
+
+    # 4th copy attachments
+    inline_links = copy_attachments(inline_links, hugo_project_path)
+
+    # 5th generate hugo posts
+    generate_hugo_posts(
+        note_files_map, inline_links, obsidian_vault_path, hugo_project_path
+    )
+
+    # print(notes)
+    # clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir)
+
+    print("Done!")
+
+
+def _check_folders(
+    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict
+):
+    if not os.path.exists(obsidian_vault_path):
+        raise ValueError("Obsidian vault path does not exist!")
+    if not os.path.exists(hugo_project_path):
+        raise ValueError("Hugo project path does not exist!")
+
+    if not folder_name_map:
+        return
+    for src_folder, dest_folder in folder_name_map.items():
+        if not os.path.exists(os.path.join(obsidian_vault_path, src_folder)):
+            raise ValueError(f"Obsidian vault folder {src_folder} does not exist!")
+
+
+def _prepare_folder_map(
+    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict
+):
+    """folders_map = {src_note_folder:dest_post_folder}, absolute path"""
+    folders = {}
+    if folder_name_map:
+        for src_folder, dest_folder in folder_name_map.items():
+            src_path = os.path.join(obsidian_vault_path, src_folder)
+            dest_path = os.path.join(hugo_project_path, "content", dest_folder)
+            folders[src_path] = dest_path
+        return folders
+
+    # else: all folders
+    exclude_dirs = []
+    # exclude_dirs = [r"^(?:drafts)$", r"^(?:template)$", r"^\."]
+    # excludes template folders
     tmpfile = str(
         pathlib.Path(obsidian_vault_path, ".obsidian/templates.json").absolute()
     )
     tmp = open(tmpfile).read()
     exclude_dirs.append(json.loads(tmp).get("folder"))
 
-    note_indexes = {}
-    for file_abs_path in list_files(obsidian_vault_path, ext=[".md"]):
-        file_rel_path = os.path.relpath(file_abs_path, obsidian_vault_path)
-        if any(file_rel_path.startswith(exclude_dir) for exclude_dir in exclude_dirs):
-            continue
-        slug_rel_path = os.path.relpath(file_abs_path, obsidian_vault_path)
-        slug_path_parts = slug_rel_path.split("/")
-        slug_path_parts[-1] = slug_path_parts[-1][:-3]
-        for i in range(len(slug_path_parts)):
-            slug_path_parts[i] = slugify(
-                add_spaces_to_content(slug_path_parts[i]), word_boundary=True
+    # add all sub folders
+    for dirpath in yield_subfolders(obsidian_vault_path, False, excludes=exclude_dirs):
+        src_path = os.path.join(obsidian_vault_path, dirpath)
+        dest_path = os.path.join(hugo_project_path, "content", dirpath)
+        folders[src_path] = dest_path
+    # add vault root folder
+    folders[obsidian_vault_path] = os.path.join(hugo_project_path, "content", "posts")
+
+    return folders
+
+
+def _parse_obsidian_notes(obsidian_vault_path, folders_map):
+    """
+    Returns:
+    - note_files_map = {note_abs_path:post_abs_path}
+    - inline_links = {inline_uri: {"abs": abs_path, "type": "file|note"}}
+    """
+    notes = {}
+    inline_links = {}
+
+    for note_folder, post_folder in folders_map.items():
+        for filepath in yield_files(note_folder, ext=[".md"]):
+            note_abs_path = os.path.join(note_folder, filepath)
+
+            # load post
+            note_raw = open(note_abs_path, "rt", encoding="utf-8").read()
+            note = frontmatter.loads(note_raw)
+            # note.metadata, note.content
+            inline_links = extract_inline_links_of_post(
+                inline_links, obsidian_vault_path, note_folder, note.content
             )
 
-        # if post slug specified in frontmatter, use it
-        post = frontmatter.load(file_abs_path)
-        slug = post.metadata.get("slug", "").strip()
-        if slug:
-            slug_path_parts[-1] = slug
+            # dest post path
+            post_slug = note.metadata.get("slug")
+            if not post_slug:
+                post_filename = os.path.splitext(os.path.basename(filepath))[0]
+                post_slug = slugify(add_spaces_to_content(post_filename))
+            post_filename = post_slug + ".md"
+            notes[note_abs_path] = os.path.join(post_folder, post_filename)
 
-        slug_uri = "/".join(slug_path_parts)
-        title = os.path.splitext(os.path.basename(file_abs_path))[0]
-        note_indexes[file_rel_path.lower()] = [slug_uri, title]
-
-    return note_indexes
+    return notes, inline_links
 
 
-def prepare_notes_specified(
-    obsidian_vault_path: str,
-    hugo_project_path: str,
-    folder_name_map: dict,
+def extract_inline_links_of_post(
+    inline_links: dict, obsidian_vault_path, note_folder, note_content
 ):
-    """
-    Args:
-        - obsidian_note_folder_names, relative path in the vault
-
-    Returns: note file path mapping
-        = {src_file_path:[slug_path, quoted_path], ...}
-    """
-
-    print("Prepare notes in specified folders ...", flush=True)
-
-    note_indexes = {}
-    for src_folder in folder_name_map:
-        note_folder_dir = os.path.join(obsidian_vault_path, src_folder)
-        for file_abs_path in list_files(note_folder_dir, ext=[".md"]):
-            file_rel_path = os.path.relpath(file_abs_path, obsidian_vault_path)
-            slug_rel_path = os.path.relpath(file_abs_path, note_folder_dir)
-            slug_path_parts = slug_rel_path.split("/")
-            slug_path_parts[-1] = slug_path_parts[-1][:-3]
-            for i in range(len(slug_path_parts)):
-                slug_path_parts[i] = slugify(
-                    add_spaces_to_content(slug_path_parts[i]), word_boundary=True
-                )
-
-            # if post slug specified in frontmatter, use it
-            try:
-                post = frontmatter.load(file_abs_path)
-            except Exception as e:
-                raise Exception(
-                    f"{str(e)}\nMaybe invalid front matter of {file_abs_path}"
-                )
-            slug = post.metadata.get("slug", "").strip()
-            if slug:
-                slug_path_parts[-1] = slug
-
-            dest_folder = folder_name_map[src_folder]
-            slug_uri = f"{dest_folder}/" + "/".join(slug_path_parts)
-            title = os.path.splitext(os.path.basename(file_abs_path))[0]
-            note_indexes[file_rel_path.lower()] = [slug_uri, title]
-    return note_indexes
-
-
-def slice_frontmatter(note_content):
-    post = frontmatter.loads(note_content)
-    return post.metadata, post.content
-
-
-def replace_links(note_content, note_indexes, attachment_indexes):
 
     # convert wiki links to md links: [[file_path]] -> md [](file_path)
     note_content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", note_content)
 
-    # get links
-    found_uris = []
+    # find links
     link_pattern = r"\[.*?\]\((.*?)\)"
     for link_uri in re.findall(link_pattern, note_content):
         uri = link_uri.split("#")[0].strip()
@@ -176,85 +154,166 @@ def replace_links(note_content, note_indexes, attachment_indexes):
         if ":" in uri:
             continue
 
-        if uri in found_uris:
+        if uri in inline_links:
             continue
 
-        found_uris.append(uri)
+        unquoted_uri = urllib.parse.unquote(uri)
+        abs_path = os.path.join(obsidian_vault_path, unquoted_uri)
+        if not os.path.exists(abs_path):
+            abs_path = os.path.join(note_folder, unquoted_uri)
+        if not os.path.exists(abs_path):
+            print(f"Maybe not a uri or broken link: {uri}")
+            continue
+            # raise ValueError(f"Can not solve the inline uri: {uri}")
 
-    # replace links
-    for uri in found_uris:
-        unquoted_uri = urllib.parse.unquote(uri).lower()
-
-        if unquoted_uri in note_indexes:
-            slug_uri = note_indexes[unquoted_uri][0]
-        elif unquoted_uri in attachment_indexes:
-            slug_uri = attachment_indexes[unquoted_uri][0]
+        if os.path.splitext(abs_path)[1] in [".md", ".markdown"]:
+            type_ = "note"
         else:
-            # dead note link, or not a link (e.g. text in code block)
-            print(f"WARNING: A dead or not note link: {unquoted_uri}")
-            continue
-        slug_uri = slug_uri.lstrip("/")
+            type_ = "file"
 
-        note_content = note_content.replace(f"]({uri})", f"](/{slug_uri})")
-        note_content = note_content.replace(f"]({uri}#", f"](/{slug_uri}#")
+        inline_links.update({uri: {"abs": abs_path, "type": type_}})
 
-    return note_content
+    return inline_links
 
 
-def convert_notes_to_posts(
-    note_indexes, attachment_indexes, obsidian_vault_path, hugo_content_path
+def generate_hugo_posts(
+    note_files_map, inline_links, obsidian_vault_path, hugo_project_path
 ):
-    print("converting ...", flush=True)
 
-    for file_path in note_indexes:
-        slug_path = note_indexes[file_path][0]
-        title = note_indexes[file_path][1]
-        note_file = os.path.join(obsidian_vault_path, file_path)
+    # check be linked notes
+    for uri in inline_links:
+        type_ = inline_links[uri]["type"]
+        note_abs_path = inline_links[uri]["abs"]
+        if type_ == "note":
+            if not note_abs_path in note_files_map:
+                print(f"Invalid link. Linked note not be converted: {uri}")
+                # use empty value to instead
+                note_files_map[note_abs_path] = None
 
-        try:
-            post = frontmatter.load(note_file)
-        except Exception as e:
-            print(note_file)
-            raise ValueError(f"Error: {e}")
+    count = 0
+    for note_abs_path, post_abs_path in note_files_map.items():
+        if not post_abs_path:  # be linked note that not be converted
+            continue
+
+        count += 1
+        # read note
+        note_raw = open(note_abs_path, "r", encoding="utf-8").read()
+        note = frontmatter.loads(note_raw)
 
         # prepare frontmatter. https://gohugo.io/content-management/front-matter/
-        metadata = post.metadata
-        metadata["slug"] = metadata.get("slug", slug_path.split("/")[-1])
-        _title = metadata.get("title", "").strip()
-        if _title:
-            title = _title
-        metadata["title"] = html.escape(title)
-        metadata["date"] = metadata.get(
-            "date",
-            time_to_readable(
-                get_file_creation_time(note_file), format_template="%Y-%m-%d"
-            ),
+        metadata = note.metadata
+
+        title = metadata.get("title", "").strip()
+        if not title:
+            title = os.path.splitext(os.path.basename(note_abs_path))[0]
+            title = html.escape(title)
+        metadata["title"] = title
+
+        post_date = metadata.get("date")
+        if not post_date:
+            post_date = metadata.get("created")
+        if not post_date:
+            post_date = get_file_creation_time(note_abs_path)
+
+        metadata["date"] = datetime.datetime.fromisoformat(
+            time_to_readable(post_date, format_template="%Y-%m-%d")
         )
+
+        last_mod = metadata.get("lastmod")
+        if not last_mod:
+            last_mod = metadata.get("updated")
+        if not last_mod:
+            last_mod = metadata.get("modified")
+        if not last_mod:
+            last_mod = get_file_modification_time(note_abs_path)
+
+        metadata["lastmod"] = datetime.datetime.fromisoformat(
+            time_to_readable(last_mod, format_template="%Y-%m-%d")
+        )
+
         metadata["tags"] = metadata.get("tags", [])
-        metadata["lastmod"] = metadata.get(
-            "lastmod",
-            time_to_readable(
-                pathlib.Path(note_file).stat().st_mtime, format_template="%Y-%m-%d"
-            ),
+
+        content = note.content
+        content = replace_links(
+            content,
+            inline_links,
+            note_files_map,
+            obsidian_vault_path,
+            hugo_project_path,
         )
-        metadata["date"] = datetime.datetime.fromisoformat(str(metadata["date"]))
-        metadata["lastmod"] = datetime.datetime.fromisoformat(str(metadata["lastmod"]))
 
-        post.metadata = metadata
-
-        post.content = replace_links(post.content, note_indexes, attachment_indexes)
-
+        post = frontmatter.Post(content, **metadata)
         output = frontmatter.dumps(post)
 
-        dest_path = os.path.join(hugo_content_path, slug_path + ".md")
-        dest_dir = os.path.dirname(dest_path)
-
+        dest_dir = os.path.dirname(post_abs_path)
         if not os.path.exists(dest_dir):
             os.makedirs(dest_dir, exist_ok=True)
-        with open(dest_path, "w") as f:
-            f.write(output)
+        open(post_abs_path, "w", encoding="utf-8").write(output)
 
-    print(f"{len(note_indexes)} notes converted.")
+    print(f"Total {count} posts generated.")
+
+
+def replace_links(
+    content, inline_links, note_files_map, obsidian_vault_path, hugo_project_path
+):
+    # - note_files_map = {note_abs_path:post_abs_path}
+    # - inline_links = {uri: {"type": "file|note", "abs": "/src/file", "dest": "/dest/file"}}
+
+    # convert wiki links to md links: [[file_path]] -> md [](file_path)
+    content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", content)
+
+    static_dir = os.path.join(hugo_project_path, "static")
+    content_dir = os.path.join(hugo_project_path, "content")
+
+    video_tag_template = """
+<video controls style="width:100%; max-height:480px;border:1px solid #ccc;border-radius:5px;">
+    <source src="{uri}" type="video/mp4">
+</video>
+"""
+
+    for uri in inline_links:
+        type_ = inline_links[uri]["type"]
+        if type_ == "file":
+            dest_filename = inline_links[uri]["dest_filename"]
+            dest_uri = "/attachments/" + dest_filename
+            ext_name = os.path.splitext(dest_filename)[1]
+
+            if ext_name in [".mp4", ".webm", ".ogg"]:
+                # video, replace md link with html tag
+                pos = _find_md_link_pos(content, uri)
+                if not pos:
+                    continue
+                pos_start, pos_end = pos
+                tag_html = video_tag_template.format(uri=dest_uri)
+                content = content[:pos_start] + tag_html + content[pos_end + 1 :]
+            else:
+                content = content.replace(f"]({uri})", f"]({dest_uri})")
+                content = content.replace(f"]({uri}#", f"]({dest_uri}#")
+                continue
+
+        else:
+            note_abs_path = inline_links[uri]["abs"]
+            post_abs_path = note_files_map[note_abs_path]
+            if not post_abs_path:  # be linked note that not be converted
+                dest_uri = "#"
+            else:
+                dest_rel_path = os.path.relpath(post_abs_path, content_dir)
+                dest_uri = os.path.splitext(dest_rel_path)[0]
+                dest_uri = urllib.parse.quote(dest_uri)
+            content = content.replace(f"]({uri})", f"](/{dest_uri})")
+            content = content.replace(f"]({uri}#", f"](/{dest_uri}#")
+            continue
+
+    return content
+
+
+def _find_md_link_pos(content, uri):
+    pos = content.find(f"]({uri}")
+    if pos == -1:
+        return None
+    pos_end = content.find(")", pos)
+    pos_start = content.rfind("![", 0, pos)
+    return (pos_start, pos_end)
 
 
 def clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir):
@@ -278,42 +337,24 @@ def clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir):
     # os.makedirs(dest_posts_dir, exist_ok=True)
 
 
-def convert(
-    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict = None
-):
+def copy_attachments(inline_links, hugo_project_path):
     """
-    Args:
-    - obsidian_note_folder_names, if not specified, all notes (exclude "drafts" and "template" folder) in the vault will be converted
-    - hugo_post_folder_name, destination folder in hugo project content directory. default is "posts"
-    - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
+    - inline_links: {uri: {"type": "file|note", "abs": "/src/file", "dest_filename":""}}
     """
-    hugo_content_path = os.path.join(hugo_project_path, "content")
-    dest_attachment_dir = os.path.join(hugo_project_path, "static/attaches")
-    dest_attachment_uri = "/attaches"
+    dest_dir = os.path.join(hugo_project_path, "static", "attachments")
+    os.makedirs(dest_dir, exist_ok=True)
 
-    cleaning_post_dirs = []
+    for uri in inline_links:
+        item = inline_links[uri]
+        if item["type"] != "file":
+            continue
+        src_path = item["abs"]
+        filename, ext_name = os.path.splitext(os.path.basename(uri))
+        dest_filename = slugify(add_spaces_to_content(filename)) + ext_name
+        dest_path = os.path.join(dest_dir, dest_filename)
 
-    if not folder_name_map:
-        note_indexes = prepare_notes_all(
-            obsidian_vault_path, hugo_project_path, exclude_dirs=["drafts"]
-        )
+        shutil.copyfile(src_path, dest_path)
 
-        for dirpath in list_subfolders(obsidian_vault_path, False, excludes=[r"^\."]):
-            cleaning_post_dirs.append(os.path.relpath(dirpath, obsidian_vault_path))
-    else:
-        note_indexes = prepare_notes_specified(
-            obsidian_vault_path, hugo_project_path, folder_name_map
-        )
-        cleaning_post_dirs = list(folder_name_map.values())
+        inline_links[uri]["dest_filename"] = dest_filename
 
-    clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir)
-
-    attachment_indexes = prepare_attachments(
-        obsidian_vault_path, dest_attachment_dir, dest_attachment_uri
-    )
-
-    convert_notes_to_posts(
-        note_indexes, attachment_indexes, obsidian_vault_path, hugo_content_path
-    )
-
-    print("Done!")
+    return inline_links
