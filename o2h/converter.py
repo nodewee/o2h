@@ -23,6 +23,7 @@ def handle(
     obsidian_vault_path: str,
     hugo_project_path: str,
     folder_name_map: dict = None,
+    onoff_clean_dest_dirs: bool = False,
 ):
     """
     Args:
@@ -56,6 +57,9 @@ def handle(
     note_files_map, inline_links = _parse_obsidian_notes(
         obsidian_vault_path, folders_map, excluded_dirname_patterns
     )
+
+    if onoff_clean_dest_dirs:
+        clean_up_dest_dirs(hugo_project_path, folders_map)
 
     # 4th copy attachments
     inline_links = copy_attachments(inline_links, hugo_project_path)
@@ -278,7 +282,7 @@ def generate_hugo_posts(
             os.makedirs(dest_dir, exist_ok=True)
         open(post_abs_path, "w", encoding="utf-8").write(output)
 
-    print(f"Total {count} posts generated.")
+    print(f"Total {count} notes converted.")
 
 
 def replace_links(
@@ -365,3 +369,21 @@ def copy_attachments(inline_links, hugo_project_path):
         inline_links[uri]["dest_filename"] = dest_filename
 
     return inline_links
+
+
+def clean_up_dest_dirs(hugo_project_path, folders_map):
+    # folders_map = {src_note_folder:dest_post_folder}
+    waiting_clean_dirs = []
+    for dest_folder in folders_map.values():
+        waiting_clean_dirs.append(dest_folder)
+    # add attachments dir
+    waiting_clean_dirs.append(os.path.join(hugo_project_path, "static", "attachments"))
+
+    # clean up dest dirs
+    for dirpath in waiting_clean_dirs:
+        # avoid cleaning hugo project dir
+        if dirpath.rstrip("/") == hugo_project_path.rstrip("/"):
+            continue
+
+        shutil.rmtree(dirpath, ignore_errors=True)
+        os.makedirs(dirpath, exist_ok=True)
