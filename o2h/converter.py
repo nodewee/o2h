@@ -20,7 +20,9 @@ from utils import (
 
 
 def handle(
-    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict = None
+    obsidian_vault_path: str,
+    hugo_project_path: str,
+    folder_name_map: dict = None,
 ):
     """
     Args:
@@ -32,14 +34,27 @@ def handle(
     # 1st check folders
     _check_folders(obsidian_vault_path, hugo_project_path, folder_name_map)
 
-    # 2nd parse notes
+    # prepare exclude dirs
+    excluded_dirname_patterns = [r"^\."]
+    # excludes template folder
+    tmp_cfg_file = str(
+        pathlib.Path(obsidian_vault_path, ".obsidian/templates.json").absolute()
+    )
+    t = open(tmp_cfg_file).read()
+    template_dirname = json.loads(t).get("folder")
+    excluded_dirname_patterns.append(f"^(?:{template_dirname})$")
+
+    # 2nd parse folders
     folders_map = _prepare_folder_map(
-        obsidian_vault_path, hugo_project_path, folder_name_map
+        obsidian_vault_path,
+        hugo_project_path,
+        folder_name_map,
+        excluded_dirname_patterns,
     )
 
     # 3rd parse notes
     note_files_map, inline_links = _parse_obsidian_notes(
-        obsidian_vault_path, folders_map
+        obsidian_vault_path, folders_map, excluded_dirname_patterns
     )
 
     # 4th copy attachments
@@ -49,9 +64,6 @@ def handle(
     generate_hugo_posts(
         note_files_map, inline_links, obsidian_vault_path, hugo_project_path
     )
-
-    # print(notes)
-    # clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir)
 
     print("Done!")
 
@@ -72,39 +84,46 @@ def _check_folders(
 
 
 def _prepare_folder_map(
-    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict
+    obsidian_vault_path: str,
+    hugo_project_path: str,
+    folder_name_map: dict,
+    excluded_dirname_patterns: list,
 ):
     """folders_map = {src_note_folder:dest_post_folder}, absolute path"""
     folders = {}
     if folder_name_map:
         for src_folder, dest_folder in folder_name_map.items():
             src_path = os.path.join(obsidian_vault_path, src_folder)
-            dest_path = os.path.join(hugo_project_path, "content", dest_folder)
+            dest_rel_dirpath = _slugify_rel_dirpath(dest_folder)
+            dest_path = os.path.join(hugo_project_path, "content", dest_rel_dirpath)
             folders[src_path] = dest_path
         return folders
 
     # else: all folders
-    exclude_dirs = []
-    # exclude_dirs = [r"^(?:drafts)$", r"^(?:template)$", r"^\."]
-    # excludes template folders
-    tmpfile = str(
-        pathlib.Path(obsidian_vault_path, ".obsidian/templates.json").absolute()
-    )
-    tmp = open(tmpfile).read()
-    exclude_dirs.append(json.loads(tmp).get("folder"))
-
     # add all sub folders
-    for dirpath in yield_subfolders(obsidian_vault_path, False, excludes=exclude_dirs):
-        src_path = os.path.join(obsidian_vault_path, dirpath)
-        dest_path = os.path.join(hugo_project_path, "content", dirpath)
-        folders[src_path] = dest_path
+    for dirpath in yield_subfolders(
+        obsidian_vault_path, recursive=True, excludes=excluded_dirname_patterns
+    ):
+        src_abs_dirpath = os.path.abspath(dirpath)
+        src_rel_dirpath = os.path.relpath(src_abs_dirpath, obsidian_vault_path)
+
+        dest_rel_dirpath = _slugify_rel_dirpath(src_rel_dirpath)
+        dest_abs_path = os.path.join(hugo_project_path, "content", dest_rel_dirpath)
+        folders[src_abs_dirpath] = dest_abs_path
     # add vault root folder
     folders[obsidian_vault_path] = os.path.join(hugo_project_path, "content", "posts")
 
     return folders
 
 
-def _parse_obsidian_notes(obsidian_vault_path, folders_map):
+def _slugify_rel_dirpath(rel_dirpath):
+    """slugify relative dirpath"""
+    path_parts = rel_dirpath.split(os.sep)
+    path_parts = [slugify(add_spaces_to_content(p)) for p in path_parts]
+    return os.sep.join(path_parts)
+
+
+def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_patterns):
     """
     Returns:
     - note_files_map = {note_abs_path:post_abs_path}
@@ -114,12 +133,21 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map):
     inline_links = {}
 
     for note_folder, post_folder in folders_map.items():
-        for filepath in yield_files(note_folder, ext=[".md"]):
+        for filepath in yield_files(note_folder, ext=[".md"], recursive=False):
             note_abs_path = os.path.join(note_folder, filepath)
+
+            # exclude dir patterns
+            dn = os.path.basename(os.path.dirname(note_abs_path))
+            if any([re.search(pat, dn) for pat in excluded_dirname_patterns]):
+                continue
 
             # load post
             note_raw = open(note_abs_path, "rt", encoding="utf-8").read()
-            note = frontmatter.loads(note_raw)
+            try:
+                note = frontmatter.loads(note_raw)
+            except Exception as e:
+                print(f"Failed to parse note: {filepath}\n\t{e}")
+                exit(1)
             # note.metadata, note.content
             inline_links = extract_inline_links_of_post(
                 inline_links, obsidian_vault_path, note_folder, note.content
@@ -314,27 +342,6 @@ def _find_md_link_pos(content, uri):
     pos_end = content.find(")", pos)
     pos_start = content.rfind("![", 0, pos)
     return (pos_start, pos_end)
-
-
-def clean_up_dirs(hugo_content_path, cleaning_post_dirs, dest_attachment_dir):
-    print("NOTICE: Will clean up these directories:")
-    print(hugo_content_path + "/?")
-    for dirname in cleaning_post_dirs:
-        print("\t", dirname)
-    print(dest_attachment_dir)
-
-    inputstr = input("Confirm to continue (y/N)")
-    if inputstr.lower() not in ["y", "yes"]:
-        print("Canceled")
-        raise InterruptedError("Canceld")
-
-    shutil.rmtree(dest_attachment_dir, ignore_errors=True)
-    os.makedirs(dest_attachment_dir, exist_ok=True)
-
-    for dirname in cleaning_post_dirs:
-        dirpath = os.path.join(hugo_content_path, dirname)
-        shutil.rmtree(dirpath, ignore_errors=True)
-    # os.makedirs(dest_posts_dir, exist_ok=True)
 
 
 def copy_attachments(inline_links, hugo_project_path):

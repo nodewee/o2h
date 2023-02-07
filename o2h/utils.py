@@ -119,19 +119,23 @@ class ImgSrcParser(html.parser.HTMLParser):
                 self.imgs = itertools.chain(self.imgs, [value])
 
 
-def yield_subfolders(dir: str, recursive: bool = True, excludes: list = None):
+def yield_subfolders(dir_path: str, recursive: bool = True, excludes: list = None):
     """
     Args:
         - dir, directory path.
         - recursive, Default is True, will list files in subfolders.
-        - excludes, exclude folder or file name list, regexp pattern string. Default is None, which means all folders
+        - excludes, exclude folder or file name list, regexp pattern string.
 
     Tips:
         - How to get relative path of a folder: os.path.relpath(subfolder_path, dir_path)
         - How to get absolute path of a folder: os.path.join(dir_path, subfolder_path)
     """
-    for f in os.scandir(dir):
+    for f in os.scandir(dir_path):
+        if not f.is_dir():
+            continue
+
         if excludes:
+            # matching dir name
             is_ignore = False
             for pat in excludes:
                 if re.search(pat, f.name):
@@ -140,11 +144,11 @@ def yield_subfolders(dir: str, recursive: bool = True, excludes: list = None):
             if is_ignore:
                 continue
 
-        if f.is_dir():
-            if recursive:
-                for item in yield_subfolders(f.path, recursive):
-                    yield item
-            yield f.path
+        if recursive:
+            for item in yield_subfolders(f.path, recursive, excludes):
+                yield item
+
+        yield f.path
 
 
 def yield_files(
@@ -158,7 +162,7 @@ def yield_files(
         - dir, directory path.
         - ext, file extension list, lowercase letters, such as ".txt". Default is None, which means all files.
         - recursive, Default is True, will list files in subfolders.
-        - excludes, exclude folder or file name list, regexp pattern string. Default is None, which means all folders
+        - excludes, exclude folder or file name list, regexp pattern string.
 
     Tips:
         - How to get relative path of a file: os.path.relpath(file_path, dir_path)
