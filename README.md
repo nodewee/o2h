@@ -2,23 +2,24 @@
 
 🌐 [English](README.md) | [中文](README_zh.md)
 
-Convert notes from **O**bsidian vault **to** **H**ugo content posts
+Convert **O**bsidian notes **to** **H**ugo posts
 
 ## Features
 
 - Links
-  - automatically convert internal links to website relative links (notes, attachments)
-  - use slug format, get slug from front-matter or generated from title
-  - alert on invalid internal links
-  - automatically convert video attachments (.mp4, .webm, .ogg) links to HTML video tags
+  - Convert internal links (notes and attachments) automatically
+  - Using slug format, get slug from front-matter or convert from file name
+  - Alert for invalid internal links
+  - Convert video attachment (.mp4, .webm, .ogg) links to HTML video tags
 
 - Folders
-  - Default is converting all folders (exclude template folder) in vault
-  - Or specify one or more folders
+  - Convert all folders in the notes library by default (automatically exclude template folders)
+  - One or more folders can be specified
+  - Option to empty the target folder or not
 
-- Date/time of post
-  - Use the specified date/time in front-matter first,
-  - Or use note(.md) file's created time and last modified time.
+- Date/time of publication
+  - First look for the specified value from the front-matter, if not found
+  - Use the creation time and last modified time of the notes file (.md)
 
 ## Usage
 
