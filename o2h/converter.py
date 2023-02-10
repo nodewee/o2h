@@ -5,13 +5,13 @@ import os
 import pathlib
 import re
 import shutil
-import time
 import urllib.parse
 
 import frontmatter
 from add_spaces import add_spaces_to_content
 from slugify import slugify
 from utils import (
+    format_time,
     get_file_creation_time,
     get_file_modification_time,
     yield_files,
@@ -247,8 +247,9 @@ def generate_hugo_posts(
         if not post_date:
             post_date = get_file_creation_time(note_abs_path)
         if isinstance(post_date, str):
-            post_date = datetime.datetime.strptime(post_date, "%Y-%m-%d").date()
-        metadata["date"] = post_date
+            metadata["date"] = post_date
+        else:
+            metadata["date"] = format_time(post_date, format_template="%Y-%m-%d")
 
         last_mod = metadata.get("lastmod")
         if not last_mod:
@@ -258,8 +259,9 @@ def generate_hugo_posts(
         if not last_mod:
             last_mod = get_file_modification_time(note_abs_path)
         if isinstance(last_mod, str):
-            last_mod = datetime.datetime.strptime(last_mod, "%Y-%m-%d").date()
-        metadata["lastmod"] = last_mod
+            metadata["lastmod"] = last_mod
+        else:
+            metadata["lastmod"] = format_time(last_mod, format_template="%Y-%m-%d")
 
         metadata["tags"] = metadata.get("tags", [])
 

@@ -9,30 +9,56 @@ import time
 
 def get_file_creation_time(file_path):
     if sys.platform.startswith("win"):
-        t = os.path.getctime(file_path)
+        return os.path.getctime(file_path)
     else:
-        t = os.stat(file_path).st_birthtime
-
-    return _format_to_date(t)
+        return os.stat(file_path).st_birthtime
 
 
 def get_file_modification_time(file_path):
-    t = os.path.getmtime(file_path)
-
-    return _format_to_date(t)
+    return os.path.getmtime(file_path)
 
 
-def _format_to_date(t):
-    if isinstance(t, (int, float)):
-        t = datetime.datetime.fromtimestamp(t).date()
-    elif isinstance(t, datetime.date):
-        pass
-    elif isinstance(t, datetime.datetime):
-        t = t.date()
+def format_time(
+    t, utc_offset_hour: int = None, format_template: str = "%Y-%m-%dT%H:%M:%S.%fZ"
+):
+    """VERSION: 0.3.4
+    Arguments:
+        - format_temple cheatsheet: https://strftime.org/
+    """
+
+    mark_utc = False
+    if utc_offset_hour is None:
+        utc_offset_hour = 0
     else:
-        raise TypeError("t must be a int, float, datetime.date or datetime.datetime")
+        mark_utc = True
+        utc_offset_hour = int(utc_offset_hour)
 
-    return t
+    readable = None
+    if type(t) in [float, int]:  # timestamp
+        t += utc_offset_hour * 3600
+        dt = datetime.datetime.fromtimestamp(t)
+        readable = datetime.datetime.strftime(dt, format_template)
+    elif type(t) in [datetime.datetime, datetime.date]:
+        t = t + datetime.timedelta(hours=utc_offset_hour)
+        readable = datetime.datetime.strftime(t, format_template)
+    elif type(t) is time.struct_time:
+        t = datetime.datetime(t[0], t[1], t[2], t[3], t[4], t[5], t[6])
+        t = t + datetime.timedelta(hours=utc_offset_hour)
+        readable = datetime.datetime.strftime(t, format_template)
+    else:
+        raise ValueError(f"Unknown type:{type(t)}")
+
+    if not readable:
+        return
+
+    if not mark_utc:
+        return readable
+
+    if utc_offset_hour >= 0:
+        readable += f" UTC+{utc_offset_hour}"
+    else:
+        readable += f" UTC{utc_offset_hour}"
+    return readable
 
 
 class LinkParser(html.parser.HTMLParser):
