@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import shutil
+import time
 import urllib.parse
 
 import frontmatter
@@ -13,7 +14,6 @@ from slugify import slugify
 from utils import (
     get_file_creation_time,
     get_file_modification_time,
-    time_to_readable,
     yield_files,
     yield_subfolders,
 )
@@ -246,10 +246,9 @@ def generate_hugo_posts(
             post_date = metadata.get("created")
         if not post_date:
             post_date = get_file_creation_time(note_abs_path)
-
-        metadata["date"] = datetime.datetime.fromisoformat(
-            time_to_readable(post_date, format_template="%Y-%m-%d")
-        )
+        if isinstance(post_date, str):
+            post_date = datetime.datetime.strptime(post_date, "%Y-%m-%d").date()
+        metadata["date"] = post_date
 
         last_mod = metadata.get("lastmod")
         if not last_mod:
@@ -258,10 +257,9 @@ def generate_hugo_posts(
             last_mod = metadata.get("modified")
         if not last_mod:
             last_mod = get_file_modification_time(note_abs_path)
-
-        metadata["lastmod"] = datetime.datetime.fromisoformat(
-            time_to_readable(last_mod, format_template="%Y-%m-%d")
-        )
+        if isinstance(last_mod, str):
+            last_mod = datetime.datetime.strptime(last_mod, "%Y-%m-%d").date()
+        metadata["lastmod"] = last_mod
 
         metadata["tags"] = metadata.get("tags", [])
 
