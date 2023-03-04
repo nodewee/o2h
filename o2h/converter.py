@@ -11,6 +11,7 @@ import frontmatter
 from add_spaces import add_spaces_to_content
 from slugify import slugify
 from utils import (
+    calc_file_md5,
     format_time,
     get_file_creation_time,
     get_file_modification_time,
@@ -62,7 +63,9 @@ def handle(
         clean_up_dest_dirs(hugo_project_path, folders_map)
 
     # 4th copy attachments
-    inline_links = copy_attachments(inline_links, hugo_project_path)
+    inline_links = copy_attachments(
+        inline_links, obsidian_vault_path, hugo_project_path
+    )
 
     # 5th generate hugo posts
     generate_hugo_posts(
@@ -348,7 +351,7 @@ def _find_md_link_pos(content, uri):
     return (pos_start, pos_end)
 
 
-def copy_attachments(inline_links, hugo_project_path):
+def copy_attachments(inline_links, obsidian_vault_path, hugo_project_path):
     """
     - inline_links: {uri: {"type": "file|note", "abs": "/src/file", "dest_filename":""}}
     """
@@ -360,8 +363,10 @@ def copy_attachments(inline_links, hugo_project_path):
         if item["type"] != "file":
             continue
         src_path = item["abs"]
-        filename, ext_name = os.path.splitext(os.path.basename(uri))
-        dest_filename = slugify(add_spaces_to_content(filename)) + ext_name
+        # file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
+        # dest_filename = slugify(add_spaces_to_content(file_rel_path_in_vault))
+        _, ext_name = os.path.splitext(os.path.basename(uri))
+        dest_filename = calc_file_md5(src_path) + ext_name
         dest_path = os.path.join(dest_dir, dest_filename)
 
         shutil.copyfile(src_path, dest_path)

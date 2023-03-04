@@ -1,10 +1,16 @@
 import datetime
+import hashlib
 import html.parser
 import itertools
 import os
 import re
 import sys
 import time
+
+
+def calc_file_md5(file_path: str):
+    with open(file_path, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
 
 
 def get_file_creation_time(file_path):
