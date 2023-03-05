@@ -1,12 +1,9 @@
 [project]
 name = "o2h"
-version = "0.3.1"
+version = "0.3.2"
 description = "Convert notes from Obsidian vault to Hugo content posts"
 authors = [{ name = "NodeWee", email = "nodewee@gmail.com" }]
-dependencies = [
-    "python-frontmatter>=1.0.0",
-    "python-slugify>=7.0.0",
-]
+dependencies = ["python-frontmatter>=1.0.0", "python-slugify>=7.0.0"]
 requires-python = ">=3.9"
 readme = "README.md"
 license = { text = "MIT" }

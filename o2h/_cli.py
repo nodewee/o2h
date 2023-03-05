@@ -1,7 +1,7 @@
 import argparse
 
 _title_ = "O2H"
-_version_ = "0.3.1"
+_version_ = "0.3.2"
 
 
 def parse_arguments():
