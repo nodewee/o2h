@@ -33,6 +33,8 @@ def handle(
     - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
     """
 
+    print("Start converting...")
+
     # 1st check folders
     _check_folders(obsidian_vault_path, hugo_project_path, folder_name_map)
 
@@ -134,7 +136,7 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_pat
     """
     Returns:
     - note_files_map = {note_abs_path:post_abs_path}
-    - inline_links = {inline_uri: {"abs": abs_path, "type": "file|note"}}
+    - inline_links = {inline_uri: {"note_abs_path": abs_path, "type": "file|note"}}
     """
     notes = {}
     inline_links = {}
@@ -157,7 +159,7 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_pat
                 exit(1)
             # note.metadata, note.content
             inline_links = extract_inline_links_of_post(
-                inline_links, obsidian_vault_path, note_folder, note.content
+                inline_links, obsidian_vault_path, note_folder, note.content, filepath
             )
 
             # dest post path
@@ -172,7 +174,7 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_pat
 
 
 def extract_inline_links_of_post(
-    inline_links: dict, obsidian_vault_path, note_folder, note_content
+    inline_links: dict, obsidian_vault_path, note_folder, note_content, note_filepath
 ):
 
     # convert wiki links to md links: [[file_path]] -> md [](file_path)
@@ -180,33 +182,43 @@ def extract_inline_links_of_post(
 
     # find links
     link_pattern = r"\[.*?\]\((.*?)\)"
-    for link_uri in re.findall(link_pattern, note_content):
-        uri = link_uri.split("#")[0].strip()
-        if not uri:
+    for origin_uri in re.findall(link_pattern, note_content):
+        if origin_uri in inline_links:
             continue
 
-        # ignore external links
-        if ":" in uri:
+        if not origin_uri:
+            print(f"Found empty link in {note_filepath}")
             continue
 
-        if uri in inline_links:
+        if ":" in origin_uri:  # ignore external links
             continue
 
-        unquoted_uri = urllib.parse.unquote(uri)
-        abs_path = os.path.join(obsidian_vault_path, unquoted_uri)
-        if not os.path.exists(abs_path):
-            abs_path = os.path.join(note_folder, unquoted_uri)
-        if not os.path.exists(abs_path):
-            print(f"Maybe not a uri or broken link: {uri}")
+        # convert anchor
+        link = {}
+        parts = list(urllib.parse.urlsplit(origin_uri))
+        link["anchor"] = trans_url_anchor(parts[4])
+
+        if origin_uri.startswith("#"):  # only has anchor
+            link["type"] = "anchor"
+            link["dest"] = ""
+            inline_links.update({origin_uri: link})
+            continue
+
+        unquoted_uri_path = urllib.parse.unquote(origin_uri.split("#")[0])
+        note_abs_path = os.path.join(obsidian_vault_path, unquoted_uri_path)
+        if not os.path.exists(note_abs_path):
+            note_abs_path = os.path.join(note_folder, unquoted_uri_path)
+        if not os.path.exists(note_abs_path):
+            print(f"Maybe not a uri or broken link: {origin_uri}")
             continue
             # raise ValueError(f"Can not solve the inline uri: {uri}")
+        link["note_abs_path"] = note_abs_path
 
-        if os.path.splitext(abs_path)[1] in [".md", ".markdown"]:
-            type_ = "note"
+        if os.path.splitext(note_abs_path)[1] in [".md", ".markdown"]:
+            link["type"] = "note"
         else:
-            type_ = "file"
-
-        inline_links.update({uri: {"abs": abs_path, "type": type_}})
+            link["type"] = "file"
+        inline_links.update({origin_uri: link})
 
     return inline_links
 
@@ -218,8 +230,8 @@ def generate_hugo_posts(
     # check be linked notes
     for uri in inline_links:
         type_ = inline_links[uri]["type"]
-        note_abs_path = inline_links[uri]["abs"]
         if type_ == "note":
+            note_abs_path = inline_links[uri].get("note_abs_path")
             if not note_abs_path in note_files_map:
                 print(f"Invalid link. Linked note not be converted: {uri}")
                 # use empty value to instead
@@ -269,7 +281,7 @@ def generate_hugo_posts(
         metadata["tags"] = metadata.get("tags", [])
 
         content = note.content
-        content = replace_links(
+        content = replace_inline_links(
             content,
             inline_links,
             note_files_map,
@@ -288,11 +300,11 @@ def generate_hugo_posts(
     print(f"Total {count} notes converted.")
 
 
-def replace_links(
+def replace_inline_links(
     content, inline_links, note_files_map, obsidian_vault_path, hugo_project_path
 ):
     # - note_files_map = {note_abs_path:post_abs_path}
-    # - inline_links = {uri: {"type": "file|note", "abs": "/src/file", "dest": "/dest/file"}}
+    # - inline_links = {uri: {"type": "anchor|file|note", "note_abs_path": "src/file/"}}
 
     # convert wiki links to md links: [[file_path]] -> md [](file_path)
     content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", content)
@@ -306,28 +318,34 @@ def replace_links(
 </video>
 """
 
-    for uri in inline_links:
-        type_ = inline_links[uri]["type"]
+    for origin_uri in inline_links:
+        type_ = inline_links[origin_uri]["type"]
         if type_ == "file":
-            dest_filename = inline_links[uri]["dest_filename"]
+            dest_filename = inline_links[origin_uri]["dest_filename"]
             dest_uri = "/attachments/" + dest_filename
             ext_name = os.path.splitext(dest_filename)[1]
 
             if ext_name in [".mp4", ".webm", ".ogg"]:
                 # video, replace md link with html tag
-                pos = _find_md_link_pos(content, uri)
+                pos = _find_md_link_pos(content, origin_uri)
                 if not pos:
                     continue
                 pos_start, pos_end = pos
                 tag_html = video_tag_template.format(uri=dest_uri)
                 content = content[:pos_start] + tag_html + content[pos_end + 1 :]
             else:
-                content = content.replace(f"]({uri})", f"]({dest_uri})")
-                content = content.replace(f"]({uri}#", f"]({dest_uri}#")
+                anchor = inline_links[origin_uri]["anchor"]
+                if anchor:
+                    dest_uri += f"#{anchor}"
+                content = content.replace(f"]({origin_uri})", f"]({dest_uri})")
                 continue
 
-        else:
-            note_abs_path = inline_links[uri]["abs"]
+        elif type_ == "anchor":
+            dest_uri = "#" + inline_links[origin_uri]["anchor"]
+            content = content.replace(f"]({origin_uri})", f"]({dest_uri})")
+            continue
+        elif type_ == "note":
+            note_abs_path = inline_links[origin_uri]["note_abs_path"]
             post_abs_path = note_files_map[note_abs_path]
             if not post_abs_path:  # be linked note that not be converted
                 dest_uri = "#"
@@ -335,9 +353,14 @@ def replace_links(
                 dest_rel_path = os.path.relpath(post_abs_path, content_dir)
                 dest_uri = os.path.splitext(dest_rel_path)[0]
                 dest_uri = urllib.parse.quote(dest_uri)
-            content = content.replace(f"]({uri})", f"](/{dest_uri})")
-            content = content.replace(f"]({uri}#", f"](/{dest_uri}#")
+
+            anchor = inline_links[origin_uri]["anchor"]
+            if anchor:
+                dest_uri += f"#{anchor}"
+            content = content.replace(f"]({origin_uri})", f"](/{dest_uri})")
             continue
+        else:
+            raise ValueError(f"Unknown type: {type_}")
 
     return content
 
@@ -353,7 +376,7 @@ def _find_md_link_pos(content, uri):
 
 def copy_attachments(inline_links, obsidian_vault_path, hugo_project_path):
     """
-    - inline_links: {uri: {"type": "file|note", "abs": "/src/file", "dest_filename":""}}
+    - inline_links: {uri: {"type": "file|note", "note_abs_path": "/src/file", "dest_filename":""}}
     """
     dest_dir = os.path.join(hugo_project_path, "static", "attachments")
     os.makedirs(dest_dir, exist_ok=True)
@@ -362,7 +385,7 @@ def copy_attachments(inline_links, obsidian_vault_path, hugo_project_path):
         item = inline_links[uri]
         if item["type"] != "file":
             continue
-        src_path = item["abs"]
+        src_path = item["note_abs_path"]
         # file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
         # dest_filename = slugify(add_spaces_to_content(file_rel_path_in_vault))
         _, ext_name = os.path.splitext(os.path.basename(uri))
@@ -392,3 +415,12 @@ def clean_up_dest_dirs(hugo_project_path, folders_map):
 
         shutil.rmtree(dirpath, ignore_errors=True)
         os.makedirs(dirpath, exist_ok=True)
+
+
+def trans_url_anchor(url_anchor: str):
+    url_anchor = url_anchor.strip().lower()
+    if not url_anchor:
+        return ""
+
+    s = urllib.parse.unquote(url_anchor).replace(" ", "-")
+    return urllib.parse.quote(s)

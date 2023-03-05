@@ -7,7 +7,7 @@ Convert **O**bsidian notes **to** **H**ugo posts
 ## Features
 
 - Links
-  - Convert internal links (notes and attachments) automatically
+  - Convert internal links (notes,attachments and heading/anchor) automatically
   - Using slug format, get slug from front-matter or convert from file name
   - Alert for invalid internal links
   - Convert video attachment (.mp4, .webm, .ogg) links to HTML video tags
