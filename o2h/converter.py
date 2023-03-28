@@ -281,9 +281,9 @@ def generate_hugo_posts(
 
         metadata["tags"] = metadata.get("tags", [])
 
-        content = note.content
-        content = replace_inline_links(
-            content,
+        metadata, content = replace_inline_links(
+            metadata,
+            note.content,
             inline_links,
             note_files_map,
             obsidian_vault_path,
@@ -302,7 +302,12 @@ def generate_hugo_posts(
 
 
 def replace_inline_links(
-    content, inline_links, note_files_map, obsidian_vault_path, hugo_project_path
+    metadata,
+    content,
+    inline_links,
+    note_files_map,
+    obsidian_vault_path,
+    hugo_project_path,
 ):
     # - note_files_map = {note_abs_path:post_abs_path}
     # - inline_links = {uri: {"type": "anchor|file|note", "note_abs_path": "src/file/"}}
@@ -326,6 +331,12 @@ def replace_inline_links(
             dest_uri = "/attachments/" + dest_filename
             ext_name = os.path.splitext(dest_filename)[1]
 
+            # replace links in metadata
+            for key in metadata:
+                if isinstance(metadata[key], str):
+                    metadata[key] = metadata[key].replace(origin_uri, dest_uri)
+
+            # replace links in content
             if ext_name in [".mp4", ".webm", ".ogg"]:
                 # video, replace md link with html tag
                 pos = _find_md_link_pos(content, origin_uri)
@@ -363,7 +374,7 @@ def replace_inline_links(
         else:
             raise ValueError(f"Unknown type: {type_}")
 
-    return content
+    return metadata, content
 
 
 def _find_md_link_pos(content, uri):
