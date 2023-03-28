@@ -25,6 +25,7 @@ def handle(
     hugo_project_path: str,
     folder_name_map: dict = None,
     onoff_clean_dest_dirs: bool = False,
+    onoff_md5_filename: bool = False,
 ):
     """
     Args:
@@ -66,7 +67,7 @@ def handle(
 
     # 4th copy attachments
     inline_links = copy_attachments(
-        inline_links, obsidian_vault_path, hugo_project_path
+        inline_links, obsidian_vault_path, hugo_project_path, onoff_md5_filename
     )
 
     # 5th generate hugo posts
@@ -374,7 +375,9 @@ def _find_md_link_pos(content, uri):
     return (pos_start, pos_end)
 
 
-def copy_attachments(inline_links, obsidian_vault_path, hugo_project_path):
+def copy_attachments(
+    inline_links, obsidian_vault_path, hugo_project_path, onoff_md5_filename
+):
     """
     - inline_links: {uri: {"type": "file|note", "note_abs_path": "/src/file", "dest_filename":""}}
     """
@@ -388,8 +391,11 @@ def copy_attachments(inline_links, obsidian_vault_path, hugo_project_path):
         src_path = item["note_abs_path"]
         # file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
         # dest_filename = slugify(add_spaces_to_content(file_rel_path_in_vault))
-        _, ext_name = os.path.splitext(os.path.basename(uri))
-        dest_filename = calc_file_md5(src_path) + ext_name
+        if onoff_md5_filename:
+            _, ext_name = os.path.splitext(os.path.basename(uri))
+            dest_filename = calc_file_md5(src_path) + ext_name
+        else:
+            dest_filename = os.path.basename(uri)
         dest_path = os.path.join(dest_dir, dest_filename)
 
         shutil.copyfile(src_path, dest_path)

@@ -40,6 +40,12 @@ Examples:
     )
 
     parser.add_argument(
+        "--md5-filename",
+        help="(optional) Use MD5 hash as attachment file name",
+        action=argparse.BooleanOptionalAction,
+    )
+
+    parser.add_argument(
         "-c",
         "--clean-dest",
         help="(optional) Clean target folders before convert",
@@ -74,5 +80,9 @@ def handle():
     from o2h import converter
 
     converter.handle(
-        args.obsidian_vault, args.hugo_project, folder_name_map, args.clean_dest
+        args.obsidian_vault,
+        args.hugo_project,
+        folder_name_map,
+        args.clean_dest,
+        args.md5_filename,
     )
