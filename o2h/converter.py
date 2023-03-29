@@ -332,9 +332,7 @@ def replace_inline_links(
             ext_name = os.path.splitext(dest_filename)[1]
 
             # replace links in metadata
-            for key in metadata:
-                if isinstance(metadata[key], str):
-                    metadata[key] = metadata[key].replace(origin_uri, dest_uri)
+            metadata = _replace_inline_links_in_var(metadata, origin_uri, dest_uri)
 
             # replace links in content
             if ext_name in [".mp4", ".webm", ".ogg"]:
@@ -441,3 +439,21 @@ def trans_url_anchor(url_anchor: str):
 
     s = urllib.parse.unquote(url_anchor).replace(" ", "-")
     return urllib.parse.quote(s)
+
+
+def _replace_inline_links_in_var(var: any, origin_uri: str, dest_uri: str):
+    if isinstance(var, str):
+        return var.replace(origin_uri, dest_uri)
+    elif isinstance(var, list):
+        return [
+            _replace_inline_links_in_var(item, origin_uri, dest_uri) for item in var
+        ]
+    elif isinstance(var, dict):
+        return {
+            _replace_inline_links_in_var(
+                k, origin_uri, dest_uri
+            ): _replace_inline_links_in_var(v, origin_uri, dest_uri)
+            for k, v in var.items()
+        }
+    else:
+        return var
