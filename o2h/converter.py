@@ -177,7 +177,6 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_pat
 def extract_inline_links_of_post(
     inline_links: dict, obsidian_vault_path, note_folder, note_content, note_filepath
 ):
-
     # convert wiki links to md links: [[file_path]] -> md [](file_path)
     note_content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", note_content)
 
@@ -227,7 +226,6 @@ def extract_inline_links_of_post(
 def generate_hugo_posts(
     note_files_map, inline_links, obsidian_vault_path, hugo_project_path
 ):
-
     # check be linked notes
     for uri in inline_links:
         type_ = inline_links[uri]["type"]
@@ -398,13 +396,13 @@ def copy_attachments(
         if item["type"] != "file":
             continue
         src_path = item["note_abs_path"]
-        # file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
-        # dest_filename = slugify(add_spaces_to_content(file_rel_path_in_vault))
         if onoff_md5_filename:
             _, ext_name = os.path.splitext(os.path.basename(uri))
             dest_filename = calc_file_md5(src_path) + ext_name
         else:
-            dest_filename = os.path.basename(uri)
+            file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
+            dest_filename = slugify(add_spaces_to_content(file_rel_path_in_vault))
+            # dest_filename = os.path.basename(uri)
         dest_path = os.path.join(dest_dir, dest_filename)
 
         shutil.copyfile(src_path, dest_path)
