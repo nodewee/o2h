@@ -396,13 +396,14 @@ def copy_attachments(
         if item["type"] != "file":
             continue
         src_path = item["note_abs_path"]
+        file_name, ext_name = os.path.splitext(os.path.basename(src_path))
         if onoff_md5_filename:
-            _, ext_name = os.path.splitext(os.path.basename(uri))
             dest_filename = calc_file_md5(src_path) + ext_name
         else:
             file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
-            dest_filename = slugify(add_spaces_to_content(file_rel_path_in_vault))
-            # dest_filename = os.path.basename(uri)
+            rel_path = os.path.dirname(file_rel_path_in_vault)
+            slug_filename = slugify(add_spaces_to_content(rel_path + "-" + file_name))
+            dest_filename = slug_filename + ext_name
         dest_path = os.path.join(dest_dir, dest_filename)
 
         shutil.copyfile(src_path, dest_path)
