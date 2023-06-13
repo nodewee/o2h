@@ -1,18 +1,17 @@
 import argparse
 
 _title_ = "O2H"
-_version_ = "0.3.2"
+_version_ = "0.3.3"
 
 
 def parse_arguments():
-
     desc = f"{_title_} ver {_version_}"
     desc += """
 Convert Obsidian vault notes to Hugo content posts.
 
 Examples:
     - python o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs
-    - python o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs>posts subject2>subject
+    - python o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders "blogs>posts subject2>subject"
     """
 
     parser = argparse.ArgumentParser(
@@ -35,8 +34,7 @@ Examples:
     parser.add_argument(
         "--folders",
         type=str,
-        nargs="+",
-        help="Specify Obsidian note folders to convert, and target folder names in Hugo project. If target folder name is not specified, is the same as the source folder name. The target folder name can be specified after the source folder name, separated by a greater than sign (>). For example: --folders blogs>posts subject2>subject",
+        help='Specify Obsidian note folders to convert, and target folder names in Hugo project. If target folder name is not specified, is the same as the source folder name. The target folder name can be specified after the source folder name, separated by a greater than sign (>). For example: "--folders blogs>posts subject2>subject"',
     )
 
     parser.add_argument(
@@ -57,19 +55,22 @@ Examples:
     return args
 
 
-def _parse_folder_name_map(folders: list):
-    folder_name_map = {}  # {src_folder:dest_folder}
-    if folders:
-        for item in folders:
-            item = item.strip()
-            if not item:
-                continue
+def _parse_folder_name_map(folders: str):
+    if not folders:
+        return {}
 
-            if ">" not in item:
-                folder_name_map[item] = item
-            else:
-                arr = item.split(">")
-                folder_name_map[arr[0]] = arr[1]
+    folders = folders.split(" ")
+    folder_name_map = {}  # {src_folder:dest_folder}
+    for item in folders:
+        item = item.strip()
+        if not item:
+            continue
+
+        if ">" not in item:
+            folder_name_map[item] = item
+        else:
+            arr = item.split(">")
+            folder_name_map[arr[0]] = arr[1]
     return folder_name_map
 
 
