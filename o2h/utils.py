@@ -96,7 +96,7 @@ class LinkParser(html.parser.HTMLParser):
             return
 
         self.in_link = True
-        for (name, value) in attrs:
+        for name, value in attrs:
             if name == "href":
                 self.cur_link_href = value
 
@@ -119,7 +119,7 @@ class ImgSrcParser(html.parser.HTMLParser):
         if tag != "img":
             return
 
-        for (name, value) in attrs:
+        for name, value in attrs:
             if name == "src":
                 self.imgs = itertools.chain(self.imgs, [value])
 

@@ -1,6 +1,6 @@
-import datetime
 import html
 import json
+import logging
 import os
 import pathlib
 import re
@@ -34,7 +34,7 @@ def handle(
     - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
     """
 
-    print("Start converting...")
+    logging.info("Start converting...")
 
     # 1st check folders
     _check_folders(obsidian_vault_path, hugo_project_path, folder_name_map)
@@ -75,7 +75,7 @@ def handle(
         note_files_map, inline_links, obsidian_vault_path, hugo_project_path
     )
 
-    print("Done!")
+    logging.info("Done!")
 
 
 def _check_folders(
@@ -156,7 +156,7 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_pat
             try:
                 note = frontmatter.loads(note_raw)
             except Exception as e:
-                print(f"Failed to parse note: {filepath}\n\t{e}")
+                logging.error(f"Failed to parse note: {filepath}\n\t{e}")
                 exit(1)
             # note.metadata, note.content
             inline_links = extract_inline_links_of_post(
@@ -187,7 +187,7 @@ def extract_inline_links_of_post(
             continue
 
         if not origin_uri:
-            print(f"Found empty link in {note_filepath}")
+            logging.warn(f"Found empty link in {note_filepath}")
             continue
 
         if ":" in origin_uri:  # ignore external links
@@ -209,7 +209,7 @@ def extract_inline_links_of_post(
         if not os.path.exists(note_abs_path):
             note_abs_path = os.path.join(note_folder, unquoted_uri_path)
         if not os.path.exists(note_abs_path):
-            print(f"Maybe not a uri or broken link: {origin_uri}")
+            logging.warn(f"Maybe not a uri or broken link: {origin_uri}")
             continue
             # raise ValueError(f"Can not solve the inline uri: {uri}")
         link["note_abs_path"] = note_abs_path
@@ -232,7 +232,7 @@ def generate_hugo_posts(
         if type_ == "note":
             note_abs_path = inline_links[uri].get("note_abs_path")
             if not note_abs_path in note_files_map:
-                print(f"Invalid link. Linked note not be converted: {uri}")
+                logging.warn(f"Invalid link. Linked note not be converted: {uri}")
                 # use empty value to instead
                 note_files_map[note_abs_path] = None
 
@@ -296,7 +296,7 @@ def generate_hugo_posts(
             os.makedirs(dest_dir, exist_ok=True)
         open(post_abs_path, "w", encoding="utf-8").write(output)
 
-    print(f"Total {count} notes converted.")
+    logging.info(f"Total {count} notes converted.")
 
 
 def replace_inline_links(
@@ -390,6 +390,8 @@ def copy_attachments(
     """
     dest_dir = os.path.join(hugo_project_path, "static", "attachments")
     os.makedirs(dest_dir, exist_ok=True)
+
+    logging.info("Coping attachments ...")
 
     for uri in inline_links:
         item = inline_links[uri]

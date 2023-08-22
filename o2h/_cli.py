@@ -1,7 +1,16 @@
 import argparse
+import logging
+from logging import Formatter, StreamHandler
 
 _title_ = "O2H"
 _version_ = "0.3.3"
+
+
+# Initialize logging config
+streamHandler = StreamHandler()
+streamHandler.setFormatter(Formatter("%(levelname)-6s %(message)s"))
+logging.getLogger().addHandler(streamHandler)
+logging.getLogger().setLevel(logging.INFO)
 
 
 def parse_arguments():
@@ -46,7 +55,7 @@ Examples:
     parser.add_argument(
         "-c",
         "--clean-dest",
-        help="(optional) Clean target folders before convert",
+        help="(optional) Clean target folders before convert. Default is false",
         action=argparse.BooleanOptionalAction,
     )
 

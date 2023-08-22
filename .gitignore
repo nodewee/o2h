@@ -13,3 +13,4 @@
 
 **/tmp.*
 .pdm.toml
+.pdm-python
