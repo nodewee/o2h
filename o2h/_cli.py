@@ -3,7 +3,7 @@ import logging
 from logging import Formatter, StreamHandler
 
 _title_ = "O2H"
-_version_ = "0.3.3"
+_version_ = "0.3.4"
 
 
 # Initialize logging config
