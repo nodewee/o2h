@@ -429,8 +429,14 @@ def clean_up_dest_dirs(hugo_project_path, folders_map):
         if dirpath.rstrip("/") == hugo_project_path.rstrip("/"):
             continue
 
-        shutil.rmtree(dirpath, ignore_errors=True)
-        os.makedirs(dirpath, exist_ok=True)
+        logging.info(f"Cleaning directory: {dirpath} ...")
+        for file in pathlib.Path(dirpath).rglob("*"):
+            if file.is_dir():
+                continue
+            if file.name.startswith("_index."):
+                continue  # avoid custom index page
+            # delete the file
+            file.unlink(True)
 
 
 def trans_url_anchor(url_anchor: str):

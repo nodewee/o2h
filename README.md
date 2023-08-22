@@ -15,7 +15,7 @@ Convert **O**bsidian notes **to** **H**ugo posts
 - Folders
   - Convert all folders in the notes library by default (automatically exclude template folders)
   - One or more folders can be specified
-  - Option to empty the target folder or not
+  - Option to empty target folder (keep "_index.*" files)
 
 - Date/time of publication
   - First look for the specified value from the front-matter, if not found
