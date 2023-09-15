@@ -8,7 +8,7 @@ _version_ = "0.3.4"
 
 # Initialize logging config
 streamHandler = StreamHandler()
-streamHandler.setFormatter(Formatter("%(levelname)-6s %(message)s"))
+streamHandler.setFormatter(Formatter("[ %(levelname)-8s ] %(message)s"))
 logging.getLogger().addHandler(streamHandler)
 logging.getLogger().setLevel(logging.INFO)
 
