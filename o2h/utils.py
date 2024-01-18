@@ -15,19 +15,24 @@ def calc_file_md5(file_path: str):
 
 def get_file_creation_time(file_path):
     if sys.platform.startswith("win"):
-        return os.path.getctime(file_path)
+        t = os.path.getctime(file_path)
     else:
-        return os.stat(file_path).st_birthtime
+        t = os.stat(file_path).st_birthtime
+    return format_time(t, format_template="%Y-%m-%d", show_utc=False)
 
 
 def get_file_modification_time(file_path):
-    return os.path.getmtime(file_path)
+    t = os.path.getmtime(file_path)
+    return format_time(t, format_template="%Y-%m-%d", show_utc=False)
 
 
 def format_time(
-    t, utc_offset_hour: int = None, format_template: str = "%Y-%m-%dT%H:%M:%S.%fZ"
-):
-    """VERSION: 0.3.4
+    t,
+    utc_offset_hour: int = None,
+    format_template: str = "%Y-%m-%dT%H:%M:%S.%fZ",
+    show_utc=True,
+) -> str:
+    """VERSION: 0.3.5
     Arguments:
         - format_temple cheatsheet: https://strftime.org/
     """
@@ -36,7 +41,6 @@ def format_time(
     if utc_offset_hour is None:
         utc_offset_hour = 0
     else:
-        mark_utc = True
         utc_offset_hour = int(utc_offset_hour)
 
     readable = None
@@ -57,13 +61,12 @@ def format_time(
     if not readable:
         return
 
-    if not mark_utc:
-        return readable
+    if show_utc:
+        if utc_offset_hour >= 0:
+            readable += f" UTC+{utc_offset_hour}"
+        else:
+            readable += f" UTC-{utc_offset_hour}"
 
-    if utc_offset_hour >= 0:
-        readable += f" UTC+{utc_offset_hour}"
-    else:
-        readable += f" UTC{utc_offset_hour}"
     return readable
 
 

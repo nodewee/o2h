@@ -260,10 +260,8 @@ def generate_hugo_posts(
             post_date = metadata.get("created")
         if not post_date:
             post_date = get_file_creation_time(note_abs_path)
-        if isinstance(post_date, str):
+        if post_date:
             metadata["date"] = post_date
-        else:
-            metadata["date"] = format_time(post_date, format_template="%Y-%m-%d")
 
         last_mod = metadata.get("lastmod")
         if not last_mod:
@@ -272,10 +270,8 @@ def generate_hugo_posts(
             last_mod = metadata.get("modified")
         if not last_mod:
             last_mod = get_file_modification_time(note_abs_path)
-        if isinstance(last_mod, str):
+        if last_mod:
             metadata["lastmod"] = last_mod
-        else:
-            metadata["lastmod"] = format_time(last_mod, format_template="%Y-%m-%d")
 
         metadata["tags"] = metadata.get("tags", [])
 
