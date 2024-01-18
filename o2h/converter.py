@@ -8,9 +8,9 @@ import shutil
 import urllib.parse
 
 import frontmatter
-from add_spaces import add_spaces_to_content
+from o2h.add_spaces import add_spaces_to_content
 from slugify import slugify
-from utils import (
+from o2h.utils import (
     calc_file_md5,
     format_time,
     get_file_creation_time,

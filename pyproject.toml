@@ -1,16 +1,14 @@
-[project]
-name = "o2h"
-version = "0.3.2"
-description = "Convert notes from Obsidian vault to Hugo content posts"
-authors = [{ name = "NodeWee", email = "nodewee@gmail.com" }]
-dependencies = ["python-frontmatter>=1.0.0", "python-slugify>=7.0.0"]
-requires-python = ">=3.9"
-readme = "README.md"
-license = { text = "MIT" }
-
 [build-system]
-requires = ["pdm-pep517>=1.0.0"]
-build-backend = "pdm.pep517.api"
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
 
-[tool.pdm.scripts]
-format = "isort --profile black . && black ."
+[tool.isort]
+profile = "black"
+skip_glob = [".env/*"]
+
+[tool.black]
+line-length = 88 # default is 88
+target-version = ['py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
