@@ -3,7 +3,7 @@ import logging
 from logging import Formatter, StreamHandler
 
 _title_ = "O2H"
-_version_ = "0.3.4"
+_version_ = "0.3.5"
 
 
 # Initialize logging config
@@ -16,11 +16,14 @@ logging.getLogger().setLevel(logging.INFO)
 def parse_arguments():
     desc = f"{_title_} ver {_version_}"
     desc += """
-Convert Obsidian vault notes to Hugo content posts.
+A markdown format transpiler for Obsidian to Hugo. (Convert Obsidian vault notes to Hugo content posts.)
 
-Examples:
-    - python o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs
-    - python o2h "path/to/obsidian/vault" "path/to/hugo/project" --folders "blogs>posts subject2>subject"
+Usage:
+    - python . "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs
+        Convert all notes in "blogs" folder to Hugo /content/blogs folder.
+    - python . "path/to/obsidian/vault" "path/to/hugo/project" --folders "blogs/abc>posts subject2/efg>subject"
+        Convert all notes in "blogs/abc" folder to Hugo /content/posts folder, and all notes in "subject2/efg" folder to Hugo "/content/subject" folder.
+        * Use ` ` space to separate multiple folders, and `>` to separate source and target folder names.
     """
 
     parser = argparse.ArgumentParser(
@@ -47,8 +50,15 @@ Examples:
     )
 
     parser.add_argument(
-        "--md5-filename",
-        help="(optional) Use MD5 hash as attachment file name",
+        "--attachment-folder",
+        help="(optional) Specify the folder name in Hugo project, that copy attachments to. Default is 'attachments', the path is '/static/attachments'",
+        type=str,
+        default="attachments",
+    )
+
+    parser.add_argument(
+        "--md5-attachment",
+        help="(optional) Use MD5 hash as attachment file name. Default is false",
         action=argparse.BooleanOptionalAction,
     )
 
@@ -64,7 +74,7 @@ Examples:
     return args
 
 
-def _parse_folder_name_map(folders: str):
+def _parse_post_folder_name_map(folders: str):
     if not folders:
         return {}
 
@@ -83,16 +93,18 @@ def _parse_folder_name_map(folders: str):
     return folder_name_map
 
 
+
 def handle():
     args = parse_arguments()
-    folder_name_map = _parse_folder_name_map(args.folders)
+    post_folder_name_map = _parse_post_folder_name_map(args.folders)
 
     from o2h import converter
 
     converter.handle(
         args.obsidian_vault,
         args.hugo_project,
-        folder_name_map,
+        args.attachment_folder,
+        post_folder_name_map,
         args.clean_dest,
-        args.md5_filename,
+        args.md5_attachment,
     )

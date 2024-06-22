@@ -23,15 +23,17 @@ from o2h.utils import (
 def handle(
     obsidian_vault_path: str,
     hugo_project_path: str,
+    hugo_attachment_folder_name: str,
     folder_name_map: dict = None,
     onoff_clean_dest_dirs: bool = False,
-    onoff_md5_filename: bool = False,
+    onoff_md5_attachment: bool = False,
 ):
     """
     Args:
     - obsidian_note_folder_names, if not specified, all notes (exclude "drafts" and "template" folder) in the vault will be converted
     - hugo_post_folder_name, destination folder in hugo project content directory. default is "posts"
     - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
+    - attachment_folder_names, tuple of (folder_name_in_obsidian, folder_name_in_hugo)
     """
 
     logging.info("Start converting...")
@@ -63,16 +65,24 @@ def handle(
     )
 
     if onoff_clean_dest_dirs:
-        clean_up_dest_dirs(hugo_project_path, folders_map)
+        clean_up_dest_dirs(hugo_project_path, folders_map, hugo_attachment_folder_name)
 
     # 4th copy attachments
     inline_links = copy_attachments(
-        inline_links, obsidian_vault_path, hugo_project_path, onoff_md5_filename
+        inline_links,
+        obsidian_vault_path,
+        hugo_project_path,
+        hugo_attachment_folder_name,
+        onoff_md5_attachment,
     )
 
     # 5th generate hugo posts
     generate_hugo_posts(
-        note_files_map, inline_links, obsidian_vault_path, hugo_project_path
+        note_files_map,
+        inline_links,
+        obsidian_vault_path,
+        hugo_project_path,
+        hugo_attachment_folder_name,
     )
 
     logging.info("Done!")
@@ -82,9 +92,9 @@ def _check_folders(
     obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict
 ):
     if not os.path.exists(obsidian_vault_path):
-        raise ValueError("Obsidian vault path does not exist!")
+        raise FileNotFoundError(f"Path not found: {obsidian_vault_path}")
     if not os.path.exists(hugo_project_path):
-        raise ValueError("Hugo project path does not exist!")
+        raise FileNotFoundError(f"Path not found: {hugo_project_path}")
 
     if not folder_name_map:
         return
@@ -224,7 +234,11 @@ def extract_inline_links_of_post(
 
 
 def generate_hugo_posts(
-    note_files_map, inline_links, obsidian_vault_path, hugo_project_path
+    note_files_map,
+    inline_links,
+    obsidian_vault_path,
+    hugo_project_path,
+    hugo_attachment_folder_name,
 ):
     # check be linked notes
     for uri in inline_links:
@@ -282,6 +296,7 @@ def generate_hugo_posts(
             note_files_map,
             obsidian_vault_path,
             hugo_project_path,
+            hugo_attachment_folder_name,
         )
 
         post = frontmatter.Post(content, **metadata)
@@ -302,6 +317,7 @@ def replace_inline_links(
     note_files_map,
     obsidian_vault_path,
     hugo_project_path,
+    hugo_attachment_folder_name,
 ):
     # - note_files_map = {note_abs_path:post_abs_path}
     # - inline_links = {uri: {"type": "anchor|file|note", "note_abs_path": "src/file/"}}
@@ -309,7 +325,6 @@ def replace_inline_links(
     # convert wiki links to md links: [[file_path]] -> md [](file_path)
     content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", content)
 
-    static_dir = os.path.join(hugo_project_path, "static")
     content_dir = os.path.join(hugo_project_path, "content")
 
     video_tag_template = """
@@ -317,12 +332,13 @@ def replace_inline_links(
     <source src="{uri}" type="video/mp4">
 </video>
 """
+    attachment_rel_path = "/" + hugo_attachment_folder_name.strip("/") + "/"
 
     for origin_uri in inline_links:
         type_ = inline_links[origin_uri]["type"]
         if type_ == "file":
             dest_filename = inline_links[origin_uri]["dest_filename"]
-            dest_uri = "/attachments/" + dest_filename
+            dest_uri = attachment_rel_path + dest_filename
             ext_name = os.path.splitext(dest_filename)[1]
 
             # replace links in metadata
@@ -379,12 +395,19 @@ def _find_md_link_pos(content, uri):
 
 
 def copy_attachments(
-    inline_links, obsidian_vault_path, hugo_project_path, onoff_md5_filename
+    inline_links,
+    obsidian_vault_path,
+    hugo_project_path,
+    hugo_attachment_folder_name,
+    onoff_md5_attachment,
 ):
     """
     - inline_links: {uri: {"type": "file|note", "note_abs_path": "/src/file", "dest_filename":""}}
     """
-    dest_dir = os.path.join(hugo_project_path, "static", "attachments")
+
+    dest_dir = os.path.join(hugo_project_path, "static")
+    for name in hugo_attachment_folder_name.split("/"):
+        dest_dir = os.path.join(dest_dir, name)
     os.makedirs(dest_dir, exist_ok=True)
 
     logging.info("Coping attachments ...")
@@ -395,7 +418,7 @@ def copy_attachments(
             continue
         src_path = item["note_abs_path"]
         file_name, ext_name = os.path.splitext(os.path.basename(src_path))
-        if onoff_md5_filename:
+        if onoff_md5_attachment:
             dest_filename = calc_file_md5(src_path) + ext_name
         else:
             file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
@@ -411,13 +434,17 @@ def copy_attachments(
     return inline_links
 
 
-def clean_up_dest_dirs(hugo_project_path, folders_map):
+def clean_up_dest_dirs(hugo_project_path, folders_map, hugo_attachment_folder_name):
+    logging.info("Cleaning up destination directories ...")
     # folders_map = {src_note_folder:dest_post_folder}
     waiting_clean_dirs = []
     for dest_folder in folders_map.values():
         waiting_clean_dirs.append(dest_folder)
     # add attachments dir
-    waiting_clean_dirs.append(os.path.join(hugo_project_path, "static", "attachments"))
+    attachment_dir = os.path.join(hugo_project_path, "static")
+    for name in hugo_attachment_folder_name.split("/"):
+        attachment_dir = os.path.join(attachment_dir, name)
+    waiting_clean_dirs.append(attachment_dir)
 
     # clean up dest dirs
     for dirpath in waiting_clean_dirs:
