@@ -85,10 +85,11 @@ def handle(
     """
     Args:
     - obsidian_note_folder_names, if not specified, all notes (exclude "drafts" and "template" folder) in the vault will be converted
-    - hugo_post_folder_name, destination folder in hugo project content directory. default is "posts"
+    - hugo_project_path, destination SSG project path (Hugo/Zola)
+    - hugo_attachment_folder_name, destination folder in SSG project for attachments
     - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
-    - attachment_folder_names, tuple of (folder_name_in_obsidian, folder_name_in_hugo)
-    - frontmatter_format, format of frontmatter in generated Hugo posts: "yaml" or "toml"
+    - attachment_folder_names, tuple of (folder_name_in_obsidian, folder_name_in_ssg)
+    - frontmatter_format, format of frontmatter in generated posts: "yaml" (Hugo) or "toml" (Zola)
     """
 
     logging.info("Start converting...")
@@ -131,7 +132,7 @@ def handle(
         onoff_md5_attachment,
     )
 
-    # 5th generate hugo posts
+    # 5th generate posts for SSG
     generate_hugo_posts(
         note_files_map,
         inline_links,
@@ -324,7 +325,9 @@ def generate_hugo_posts(
         note_raw = open(note_abs_path, "r", encoding="utf-8").read()
         note = frontmatter.loads(note_raw)
 
-        # prepare frontmatter. https://gohugo.io/content-management/front-matter/
+        # prepare frontmatter for SSGs (Hugo/Zola)
+        # Hugo: https://gohugo.io/content-management/front-matter/
+        # Zola: https://www.getzola.org/documentation/content/page/#front-matter
         metadata = note.metadata
 
         title = metadata.get("title", "").strip()

@@ -3,7 +3,7 @@ import logging
 from logging import Formatter, StreamHandler
 
 _title_ = "O2H"
-_version_ = "0.3.5"
+_version_ = "0.3.7"
 
 
 # Initialize logging config
@@ -16,11 +16,13 @@ logging.getLogger().setLevel(logging.INFO)
 def parse_arguments():
     desc = f"{_title_} ver {_version_}"
     desc += """
-A markdown format transpiler for Obsidian to Hugo. (Convert Obsidian vault notes to Hugo content posts.)
+A markdown format transpiler for Obsidian to Hugo/Zola. (Convert Obsidian vault notes to Hugo or Zola content posts.)
 
 Usage:
     - python . "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs
-        Convert all notes in "blogs" folder to Hugo /content/blogs folder.
+        Convert all notes in "blogs" folder to Hugo /content/blogs folder (YAML frontmatter).
+    - python . "path/to/obsidian/vault" "path/to/zola/project" --folders blogs --frontmatter-format toml
+        Convert all notes in "blogs" folder to Zola /content/blogs folder (TOML frontmatter).
     - python . "path/to/obsidian/vault" "path/to/hugo/project" --folders "blogs/abc>posts subject2/efg>subject"
         Convert all notes in "blogs/abc" folder to Hugo /content/posts folder, and all notes in "subject2/efg" folder to Hugo "/content/subject" folder.
         * Use ` ` space to separate multiple folders, and `>` to separate source and target folder names.
@@ -39,19 +41,19 @@ Usage:
     )
     parser.add_argument(
         "hugo_project",
-        help="(required) Hugo project path",
+        help="(required) Hugo/Zola project path",
         type=str,
     )
 
     parser.add_argument(
         "--folders",
         type=str,
-        help='Specify Obsidian note folders to convert, and target folder names in Hugo project. If target folder name is not specified, is the same as the source folder name. The target folder name can be specified after the source folder name, separated by a greater than sign (>). For example: "--folders blogs>posts subject2>subject"',
+        help='Specify Obsidian note folders to convert, and target folder names in Hugo/Zola project. If target folder name is not specified, is the same as the source folder name. The target folder name can be specified after the source folder name, separated by a greater than sign (>). For example: "--folders blogs>posts subject2>subject"',
     )
 
     parser.add_argument(
         "--attachment-folder",
-        help="(optional) Specify the folder name in Hugo project, that copy attachments to. Default is 'attachments', the path is '/static/attachments'",
+        help="(optional) Specify the folder name in Hugo/Zola project, that copy attachments to. Default is 'attachments', the path is '/static/attachments'",
         type=str,
         default="attachments",
     )
@@ -71,7 +73,7 @@ Usage:
 
     parser.add_argument(
         "--frontmatter-format",
-        help="(optional) Specify frontmatter format: yaml or toml. Default is yaml",
+        help="(optional) Specify frontmatter format: yaml (Hugo) or toml (Zola). Default is yaml",
         type=str,
         choices=["yaml", "toml"],
         default="yaml",

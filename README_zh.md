@@ -2,7 +2,7 @@
 
 🌐 [English](README.md) | [中文](README_zh.md)
 
-将 **O**bsidian .md 转换成 **H**ugo .md
+将 **O**bsidian .md 转换成 **H**ugo/Zola .md
 
 ## 功能
 
@@ -26,8 +26,14 @@
   - 例如：具有 `lang: "zh"` 和 slug `abc-efg` 的文章将生成 `abc-efg.zh.md`
 
 - 前置元数据（Frontmatter）
-  - 支持 YAML（默认）和 TOML 格式
+  - 支持 YAML 和 TOML 格式
+  - YAML 格式（默认）- 兼容 Hugo SSG
+  - TOML 格式 - 兼容 Zola SSG
   - 使用 `--frontmatter-format` 参数指定格式
+
+- 静态站点生成器兼容性
+  - **Hugo SSG**: 使用 YAML 前置元数据格式（默认）
+  - **Zola SSG**: 使用 TOML 前置元数据格式
 
 ## 用法
 
@@ -42,9 +48,12 @@ python . --help
 ### 示例
 
 ```sh
-# 转换笔记，使用 YAML 格式的前置元数据（默认）
+# 转换笔记给 Hugo SSG 使用（YAML 格式的前置元数据 - 默认）
 python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs
 
-# 转换笔记，使用 TOML 格式的前置元数据
-python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --frontmatter-format toml
+# 转换笔记给 Zola SSG 使用（TOML 格式的前置元数据）
+python . "Obsidian笔记库路径" "Zola项目路径" --folders blogs --frontmatter-format toml
+
+# 转换指定文件夹并自定义映射关系
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders "blogs>posts notes>articles"
 ```

@@ -2,7 +2,7 @@
 
 🌐 [English](README.md) | [中文](README_zh.md)
 
-Convert **O**bsidian notes **to** **H**ugo posts
+Convert **O**bsidian notes **to** **H**ugo/Zola posts
 
 ## Features
 
@@ -26,8 +26,14 @@ Convert **O**bsidian notes **to** **H**ugo posts
   - Example: article with `lang: "zh"` and slug `abc-efg` will generate `abc-efg.zh.md`
 
 - Frontmatter
-  - Support both YAML (default) and TOML formats
+  - Support both YAML and TOML formats
+  - YAML format (default) - compatible with Hugo SSG
+  - TOML format - compatible with Zola SSG
   - Specify format with `--frontmatter-format` parameter
+
+- SSG Compatibility
+  - **Hugo SSG**: Use YAML frontmatter format (default)
+  - **Zola SSG**: Use TOML frontmatter format
 
 ## Usage
 
@@ -42,9 +48,12 @@ python . --help
 ### Examples
 
 ```sh
-# Convert notes with YAML frontmatter (default)
+# Convert notes for Hugo SSG (YAML frontmatter - default)
 python . "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs
 
-# Convert notes with TOML frontmatter
-python . "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs --frontmatter-format toml
+# Convert notes for Zola SSG (TOML frontmatter)
+python . "path/to/obsidian/vault" "path/to/zola/project" --folders blogs --frontmatter-format toml
+
+# Convert specific folders with custom mappings
+python . "path/to/obsidian/vault" "path/to/hugo/project" --folders "blogs>posts notes>articles"
 ```
