@@ -21,6 +21,10 @@
   - 首先从 front-matter 中查找指定值，如果没有找到，
   - 使用笔记文件(.md)的创建时间和最后修改时间
 
+- 语言支持
+  - 如果前置元数据中包含 `lang` 字段，将在生成的文件名中添加语言后缀
+  - 例如：具有 `lang: "zh"` 和 slug `abc-efg` 的文章将生成 `abc-efg.zh.md`
+
 - 前置元数据（Frontmatter）
   - 支持 YAML（默认）和 TOML 格式
   - 使用 `--frontmatter-format` 参数指定格式

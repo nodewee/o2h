@@ -21,6 +21,10 @@ Convert **O**bsidian notes **to** **H**ugo posts
   - First look for the specified value from the front-matter, if not found
   - Use the creation time and last modified time of the notes file (.md)
 
+- Language support
+  - If frontmatter contains a `lang` field, the language suffix will be added to the generated filename
+  - Example: article with `lang: "zh"` and slug `abc-efg` will generate `abc-efg.zh.md`
+
 - Frontmatter
   - Support both YAML (default) and TOML formats
   - Specify format with `--frontmatter-format` parameter

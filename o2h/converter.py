@@ -234,7 +234,14 @@ def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_pat
             if not post_slug:
                 post_filename = os.path.splitext(os.path.basename(filepath))[0]
                 post_slug = slugify(add_spaces_to_content(post_filename))
-            post_filename = post_slug + ".md"
+
+            # Check for lang field in frontmatter and add language suffix to filename
+            lang = note.metadata.get("lang")
+            if lang:
+                post_filename = f"{post_slug}.{lang}.md"
+            else:
+                post_filename = post_slug + ".md"
+            
             notes[note_abs_path] = os.path.join(post_folder, post_filename)
 
     return notes, inline_links
