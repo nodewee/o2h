@@ -1,3 +1,4 @@
 fire
 python-frontmatter
 python-slugify
+toml

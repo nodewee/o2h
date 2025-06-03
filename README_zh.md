@@ -21,6 +21,10 @@
   - 首先从 front-matter 中查找指定值，如果没有找到，
   - 使用笔记文件(.md)的创建时间和最后修改时间
 
+- 前置元数据（Frontmatter）
+  - 支持 YAML（默认）和 TOML 格式
+  - 使用 `--frontmatter-format` 参数指定格式
+
 ## 用法
 
 ```sh
@@ -29,4 +33,14 @@ cd o2h
 pdm install
 # 或者 pip install -r requirements.txt
 python . --help
+```
+
+### 示例
+
+```sh
+# 转换笔记，使用 YAML 格式的前置元数据（默认）
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs
+
+# 转换笔记，使用 TOML 格式的前置元数据
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --frontmatter-format toml
 ```

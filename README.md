@@ -21,6 +21,10 @@ Convert **O**bsidian notes **to** **H**ugo posts
   - First look for the specified value from the front-matter, if not found
   - Use the creation time and last modified time of the notes file (.md)
 
+- Frontmatter
+  - Support both YAML (default) and TOML formats
+  - Specify format with `--frontmatter-format` parameter
+
 ## Usage
 
 ```sh
@@ -29,4 +33,14 @@ cd o2h
 pdm install
 # or pip install -r requirements.txt
 python . --help
+```
+
+### Examples
+
+```sh
+# Convert notes with YAML frontmatter (default)
+python . "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs
+
+# Convert notes with TOML frontmatter
+python . "path/to/obsidian/vault" "path/to/hugo/project" --folders blogs --frontmatter-format toml
 ```

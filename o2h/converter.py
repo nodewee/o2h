@@ -6,6 +6,8 @@ import pathlib
 import re
 import shutil
 import urllib.parse
+import io
+import toml
 
 import frontmatter
 from o2h.add_spaces import add_spaces_to_content
@@ -20,6 +22,57 @@ from o2h.utils import (
 )
 
 
+# Custom TOML handler for frontmatter
+class CustomTOMLHandler:
+    """Handler for TOML frontmatter."""
+
+    def load(self, fm, text):
+        """Parse TOML front matter. Returns the metadata and content."""
+        try:
+            metadata, content = self.split(text)
+            if metadata:
+                fm.metadata = toml.loads(metadata)
+            else:
+                fm.metadata = {}
+            fm.content = content
+        except Exception as e:
+            logging.error(f"Error parsing frontmatter: {e}")
+            fm.metadata = {}
+            fm.content = text
+
+    def split(self, text):
+        """Split text into metadata and content parts."""
+        if not text.startswith('+++'):
+            return None, text
+
+        # Find the end of the frontmatter section (marked by +++)
+        end_index = text.find('+++', 3)
+        if end_index == -1:
+            return None, text
+
+        metadata = text[3:end_index].strip()
+        content = text[end_index+3:].lstrip()
+        return metadata, content
+
+    def export(self, metadata, content):
+        """Format metadata and content for TOML frontmatter."""
+        if not metadata:
+            return content
+
+        try:
+            toml_metadata = toml.dumps(metadata)
+            if not toml_metadata.strip():
+                return content
+            return f"+++\n{toml_metadata}+++\n\n{content}"
+        except Exception as e:
+            logging.error(f"Error exporting TOML frontmatter: {e}")
+            return content
+
+    def format(self, post, **kwargs):
+        """Format a post for dumping."""
+        return self.export(post.metadata, post.content)
+
+
 def handle(
     obsidian_vault_path: str,
     hugo_project_path: str,
@@ -27,6 +80,7 @@ def handle(
     folder_name_map: dict = None,
     onoff_clean_dest_dirs: bool = False,
     onoff_md5_attachment: bool = False,
+    frontmatter_format: str = "yaml",
 ):
     """
     Args:
@@ -34,6 +88,7 @@ def handle(
     - hugo_post_folder_name, destination folder in hugo project content directory. default is "posts"
     - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
     - attachment_folder_names, tuple of (folder_name_in_obsidian, folder_name_in_hugo)
+    - frontmatter_format, format of frontmatter in generated Hugo posts: "yaml" or "toml"
     """
 
     logging.info("Start converting...")
@@ -83,6 +138,7 @@ def handle(
         obsidian_vault_path,
         hugo_project_path,
         hugo_attachment_folder_name,
+        frontmatter_format,
     )
 
     logging.info("Done!")
@@ -239,6 +295,7 @@ def generate_hugo_posts(
     obsidian_vault_path,
     hugo_project_path,
     hugo_attachment_folder_name,
+    frontmatter_format: str = "yaml",
 ):
     # check be linked notes
     for uri in inline_links:
@@ -300,7 +357,12 @@ def generate_hugo_posts(
         )
 
         post = frontmatter.Post(content, **metadata)
-        output = frontmatter.dumps(post)
+        
+        # Output with specified format
+        if frontmatter_format == "toml":
+            output = frontmatter.dumps(post, handler=CustomTOMLHandler())
+        else:
+            output = frontmatter.dumps(post)
 
         dest_dir = os.path.dirname(post_abs_path)
         if not os.path.exists(dest_dir):

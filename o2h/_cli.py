@@ -69,6 +69,14 @@ Usage:
         action=argparse.BooleanOptionalAction,
     )
 
+    parser.add_argument(
+        "--frontmatter-format",
+        help="(optional) Specify frontmatter format: yaml or toml. Default is yaml",
+        type=str,
+        choices=["yaml", "toml"],
+        default="yaml",
+    )
+
     args = parser.parse_args()
 
     return args
@@ -107,4 +115,5 @@ def handle():
         post_folder_name_map,
         args.clean_dest,
         args.md5_attachment,
+        args.frontmatter_format,
     )
