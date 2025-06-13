@@ -442,8 +442,22 @@ def replace_inline_links(
             if not post_abs_path:  # be linked note that not be converted
                 dest_uri = "#"
             else:
+                # Read the target note to check if it has a lang field
+                target_note_raw = open(note_abs_path, "r", encoding="utf-8").read()
+                target_note = frontmatter.loads(target_note_raw)
+                target_lang = target_note.metadata.get("lang")
+                
                 dest_rel_path = os.path.relpath(post_abs_path, content_dir)
                 dest_uri = os.path.splitext(dest_rel_path)[0]
+                
+                # If the target note has a lang field, the URL should include it
+                if target_lang:
+                    # Remove the language suffix from the URI if it exists
+                    if dest_uri.endswith(f".{target_lang}"):
+                        dest_uri = dest_uri[:-len(f".{target_lang}")]
+                    # Add the language prefix to the URI
+                    dest_uri = f"{target_lang}/{dest_uri}"
+                
                 dest_uri = urllib.parse.quote(dest_uri)
 
             anchor = inline_links[origin_uri]["anchor"]
