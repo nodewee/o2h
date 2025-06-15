@@ -1,3 +1,5 @@
+"""Main converter class for Obsidian to Hugo/Zola conversion."""
+
 import html
 import json
 import logging
@@ -8,6 +10,8 @@ import shutil
 import urllib.parse
 import io
 import toml
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import frontmatter
 from o2h.add_spaces import add_spaces_to_content
@@ -17,8 +21,19 @@ from o2h.utils import (
     format_time,
     get_file_creation_time,
     get_file_modification_time,
+    slugify_path,
     yield_files,
     yield_subfolders,
+)
+from .link_processor import LinkProcessor
+from .logger import logger
+from .models import (
+    ConversionConfig,
+    ConversionResult,
+    FrontmatterFormat,
+    InlineLink,
+    LinkType,
+    NoteMetadata,
 )
 
 
@@ -73,503 +88,428 @@ class CustomTOMLHandler:
         return self.export(post.metadata, post.content)
 
 
-def handle(
-    obsidian_vault_path: str,
-    hugo_project_path: str,
-    hugo_attachment_folder_name: str,
-    folder_name_map: dict = None,
-    onoff_clean_dest_dirs: bool = False,
-    onoff_md5_attachment: bool = False,
-    frontmatter_format: str = "yaml",
-):
-    """
-    Args:
-    - obsidian_note_folder_names, if not specified, all notes (exclude "drafts" and "template" folder) in the vault will be converted
-    - hugo_project_path, destination SSG project path (Hugo/Zola)
-    - hugo_attachment_folder_name, destination folder in SSG project for attachments
-    - folder_name_map, data struct: {src_folder:dest_folder}. if it's empty, means all folders
-    - attachment_folder_names, tuple of (folder_name_in_obsidian, folder_name_in_ssg)
-    - frontmatter_format, format of frontmatter in generated posts: "yaml" (Hugo) or "toml" (Zola)
-    """
+class TOMLFrontmatterHandler:
+    """Custom TOML handler for python-frontmatter."""
 
-    logging.info("Start converting...")
-
-    # 1st check folders
-    _check_folders(obsidian_vault_path, hugo_project_path, folder_name_map)
-
-    # prepare exclude dirs
-    excluded_dirname_patterns = [r"^\."]
-    # excludes template folder
-    tmp_cfg_file = str(
-        pathlib.Path(obsidian_vault_path, ".obsidian/templates.json").absolute()
-    )
-    t = open(tmp_cfg_file).read()
-    template_dirname = json.loads(t).get("folder")
-    excluded_dirname_patterns.append(f"^(?:{template_dirname})$")
-
-    # 2nd parse folders
-    folders_map = _prepare_folder_map(
-        obsidian_vault_path,
-        hugo_project_path,
-        folder_name_map,
-        excluded_dirname_patterns,
-    )
-
-    # 3rd parse notes
-    note_files_map, inline_links = _parse_obsidian_notes(
-        obsidian_vault_path, folders_map, excluded_dirname_patterns
-    )
-
-    if onoff_clean_dest_dirs:
-        clean_up_dest_dirs(hugo_project_path, folders_map, hugo_attachment_folder_name)
-
-    # 4th copy attachments
-    inline_links = copy_attachments(
-        inline_links,
-        obsidian_vault_path,
-        hugo_project_path,
-        hugo_attachment_folder_name,
-        onoff_md5_attachment,
-    )
-
-    # 5th generate posts for SSG
-    generate_hugo_posts(
-        note_files_map,
-        inline_links,
-        obsidian_vault_path,
-        hugo_project_path,
-        hugo_attachment_folder_name,
-        frontmatter_format,
-    )
-
-    logging.info("Done!")
-
-
-def _check_folders(
-    obsidian_vault_path: str, hugo_project_path: str, folder_name_map: dict
-):
-    if not os.path.exists(obsidian_vault_path):
-        raise FileNotFoundError(f"Path not found: {obsidian_vault_path}")
-    if not os.path.exists(hugo_project_path):
-        raise FileNotFoundError(f"Path not found: {hugo_project_path}")
-
-    if not folder_name_map:
-        return
-    for src_folder, dest_folder in folder_name_map.items():
-        if not os.path.exists(os.path.join(obsidian_vault_path, src_folder)):
-            raise ValueError(f"Obsidian vault folder {src_folder} does not exist!")
-
-
-def _prepare_folder_map(
-    obsidian_vault_path: str,
-    hugo_project_path: str,
-    folder_name_map: dict,
-    excluded_dirname_patterns: list,
-):
-    """folders_map = {src_note_folder:dest_post_folder}, absolute path"""
-    folders = {}
-    if folder_name_map:
-        for src_folder, dest_folder in folder_name_map.items():
-            src_path = os.path.join(obsidian_vault_path, src_folder)
-            dest_rel_dirpath = _slugify_rel_dirpath(dest_folder)
-            dest_path = os.path.join(hugo_project_path, "content", dest_rel_dirpath)
-            folders[src_path] = dest_path
-        return folders
-
-    # else: all folders
-    # add all sub folders
-    for dirpath in yield_subfolders(
-        obsidian_vault_path, recursive=True, excludes=excluded_dirname_patterns
-    ):
-        src_abs_dirpath = os.path.abspath(dirpath)
-        src_rel_dirpath = os.path.relpath(src_abs_dirpath, obsidian_vault_path)
-
-        dest_rel_dirpath = _slugify_rel_dirpath(src_rel_dirpath)
-        dest_abs_path = os.path.join(hugo_project_path, "content", dest_rel_dirpath)
-        folders[src_abs_dirpath] = dest_abs_path
-    # add vault root folder
-    folders[obsidian_vault_path] = os.path.join(hugo_project_path, "content", "posts")
-
-    return folders
-
-
-def _slugify_rel_dirpath(rel_dirpath):
-    """slugify relative dirpath"""
-    path_parts = rel_dirpath.split(os.sep)
-    path_parts = [slugify(add_spaces_to_content(p)) for p in path_parts]
-    return os.sep.join(path_parts)
-
-
-def _parse_obsidian_notes(obsidian_vault_path, folders_map, excluded_dirname_patterns):
-    """
-    Returns:
-    - note_files_map = {note_abs_path:post_abs_path}
-    - inline_links = {inline_uri: {"note_abs_path": abs_path, "type": "file|note"}}
-    """
-    notes = {}
-    inline_links = {}
-
-    for note_folder, post_folder in folders_map.items():
-        for filepath in yield_files(note_folder, ext=[".md"], recursive=False):
-            note_abs_path = os.path.join(note_folder, filepath)
-
-            # exclude dir patterns
-            dn = os.path.basename(os.path.dirname(note_abs_path))
-            if any([re.search(pat, dn) for pat in excluded_dirname_patterns]):
-                continue
-
-            # load post
-            note_raw = open(note_abs_path, "rt", encoding="utf-8").read()
-            try:
-                note = frontmatter.loads(note_raw)
-            except Exception as e:
-                logging.error(f"Failed to parse note: {filepath}\n\t{e}")
-                exit(1)
-            # note.metadata, note.content
-            inline_links = extract_inline_links_of_post(
-                inline_links, obsidian_vault_path, note_folder, note.content, filepath
-            )
-
-            # dest post path
-            post_slug = note.metadata.get("slug")
-            if not post_slug:
-                post_filename = os.path.splitext(os.path.basename(filepath))[0]
-                post_slug = slugify(add_spaces_to_content(post_filename))
-
-            # Check for lang field in frontmatter and add language suffix to filename
-            lang = note.metadata.get("lang")
-            if lang:
-                post_filename = f"{post_slug}.{lang}.md"
+    def load(self, fm: frontmatter.Post, text: str) -> None:
+        """Parse TOML frontmatter."""
+        try:
+            metadata, content = self._split_frontmatter(text)
+            if metadata:
+                fm.metadata = toml.loads(metadata)
             else:
-                post_filename = post_slug + ".md"
+                fm.metadata = {}
+            fm.content = content
+        except Exception as e:
+            logger.error(f"Error parsing TOML frontmatter: {e}")
+            fm.metadata = {}
+            fm.content = text
+
+    def _split_frontmatter(self, text: str) -> tuple[Optional[str], str]:
+        """Split text into metadata and content."""
+        if not text.startswith("+++"):
+            return None, text
+
+        end_index = text.find("+++", 3)
+        if end_index == -1:
+            return None, text
+
+        metadata = text[3:end_index].strip()
+        content = text[end_index + 3:].lstrip()
+        return metadata, content
+
+    def export(self, metadata: dict, content: str) -> str:
+        """Export metadata and content as TOML frontmatter."""
+        if not metadata:
+            return content
+
+        try:
+            toml_metadata = toml.dumps(metadata)
+            if not toml_metadata.strip():
+                return content
+            return f"+++\n{toml_metadata}+++\n\n{content}"
+        except Exception as e:
+            logger.error(f"Error exporting TOML frontmatter: {e}")
+            return content
+
+    def format(self, post: frontmatter.Post, **kwargs) -> str:
+        """Format a post for output."""
+        return self.export(post.metadata, post.content)
+
+
+class ObsidianToHugoConverter:
+    """Main converter class for Obsidian to Hugo/Zola conversion."""
+
+    def __init__(self, config: ConversionConfig):
+        """Initialize converter with configuration.
+        
+        Args:
+            config: Conversion configuration
+        """
+        self.config = config
+        self.link_processor = LinkProcessor(config.obsidian_vault_path)
+        self.result = ConversionResult()
+
+    def convert(self) -> ConversionResult:
+        """Perform the complete conversion process.
+        
+        Returns:
+            Conversion result with statistics and any errors
+        """
+        try:
+            logger.info("Starting conversion...")
             
-            notes[note_abs_path] = os.path.join(post_folder, post_filename)
+            # Prepare folder mappings
+            folder_map = self._prepare_folder_map()
+            
+            # Parse notes and extract links
+            note_files_map = self._parse_notes(folder_map)
+            
+            # Clean destination directories if requested
+            if self.config.clean_dest_dirs:
+                self._clean_destination_directories(folder_map)
+            
+            # Copy attachments
+            self._copy_attachments()
+            
+            # Generate Hugo/Zola posts
+            self._generate_posts(note_files_map)
+            
+            logger.info(f"Conversion completed! {self.result.converted_notes} notes converted.")
+            
+        except Exception as e:
+            error_msg = f"Conversion failed: {e}"
+            logger.error(error_msg)
+            self.result.errors.append(error_msg)
+            
+        return self.result
 
-    return notes, inline_links
-
-
-def extract_inline_links_of_post(
-    inline_links: dict, obsidian_vault_path, note_folder, note_content, note_filepath
-):
-    # convert wiki links to md links: [[file_path]] -> md [](file_path)
-    note_content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", note_content)
-
-    # find links
-    link_pattern = r"\[.*?\]\((.*?)\)"
-    for origin_uri in re.findall(link_pattern, note_content):
-        if origin_uri in inline_links:
-            continue
-
-        if not origin_uri:
-            logging.warn(f"Found empty link in {note_filepath}")
-            continue
-
-        if ":" in origin_uri:  # ignore external links
-            continue
-
-        # convert anchor
-        link = {}
-        parts = list(urllib.parse.urlsplit(origin_uri))
-        link["anchor"] = trans_url_anchor(parts[4])
-
-        if origin_uri.startswith("#"):  # only has anchor
-            link["type"] = "anchor"
-            link["dest"] = ""
-            inline_links.update({origin_uri: link})
-            continue
-
-        unquoted_uri_path = urllib.parse.unquote(origin_uri.split("#")[0])
-        note_abs_path = os.path.join(obsidian_vault_path, unquoted_uri_path)
-        if not os.path.exists(note_abs_path):
-            note_abs_path = os.path.join(note_folder, unquoted_uri_path)
-        if not os.path.exists(note_abs_path):
-            logging.warn(f"Maybe not a uri or broken link: {origin_uri}")
-            continue
-            # raise ValueError(f"Can not solve the inline uri: {uri}")
-        link["note_abs_path"] = note_abs_path
-
-        if os.path.splitext(note_abs_path)[1] in [".md", ".markdown"]:
-            link["type"] = "note"
+    def _prepare_folder_map(self) -> Dict[Path, Path]:
+        """Prepare mapping of source folders to destination folders.
+        
+        Returns:
+            Dictionary mapping source paths to destination paths
+        """
+        folder_map = {}
+        
+        # Get template folder from Obsidian config
+        template_folder = self._get_template_folder()
+        if template_folder:
+            self.config.excluded_dirs.append(f"^(?:{template_folder})$")
+        
+        if self.config.folder_name_map:
+            # Use specified folder mappings
+            for src_folder, dest_folder in self.config.folder_name_map.items():
+                src_path = self.config.obsidian_vault_path / src_folder
+                dest_rel_path = slugify_path(dest_folder)
+                dest_path = self.config.hugo_project_path / "content" / dest_rel_path
+                folder_map[src_path] = dest_path
         else:
-            link["type"] = "file"
-        inline_links.update({origin_uri: link})
+            # Use all folders in vault
+            for folder_path in yield_subfolders(
+                self.config.obsidian_vault_path,
+                recursive=True,
+                excludes=self.config.excluded_dirs,
+            ):
+                rel_path = folder_path.relative_to(self.config.obsidian_vault_path)
+                dest_rel_path = slugify_path(str(rel_path))
+                dest_path = self.config.hugo_project_path / "content" / dest_rel_path
+                folder_map[folder_path] = dest_path
+                
+            # Add vault root folder
+            folder_map[self.config.obsidian_vault_path] = (
+                self.config.hugo_project_path / "content" / "posts"
+            )
+            
+        return folder_map
+    
+    def _get_template_folder(self) -> Optional[str]:
+        """Get template folder name from Obsidian configuration.
+        
+        Returns:
+            Template folder name or None if not found
+        """
+        try:
+            template_config_path = (
+                self.config.obsidian_vault_path / ".obsidian" / "templates.json"
+            )
+            if template_config_path.exists():
+                config_data = json.loads(template_config_path.read_text())
+                return config_data.get("folder")
+        except Exception as e:
+            logger.warning(f"Could not read template configuration: {e}")
+        return None
 
-    return inline_links
+    def _parse_notes(self, folder_map: Dict[Path, Path]) -> Dict[Path, Path]:
+        """Parse Obsidian notes and extract metadata and links.
+        
+        Args:
+            folder_map: Mapping of source to destination folders
+            
+        Returns:
+            Dictionary mapping note paths to post paths
+        """
+        note_files_map = {}
+        
+        for note_folder, post_folder in folder_map.items():
+            for note_path in yield_files(
+                note_folder, 
+                extensions=[".md"], 
+                recursive=False
+            ):
+                # Skip excluded directories
+                if self._should_exclude_note(note_path):
+                    continue
+                    
+                try:
+                    # Parse note
+                    note_content = note_path.read_text(encoding="utf-8")
+                    note = frontmatter.loads(note_content)
+                    
+                    # Extract links from content
+                    self.link_processor.extract_links_from_content(
+                        note.content, note_folder, str(note_path)
+                    )
+                    
+                    # Generate post path
+                    post_path = self._generate_post_path(note, note_path, post_folder)
+                    note_files_map[note_path] = post_path
+                    
+                except Exception as e:
+                    error_msg = f"Failed to parse note {note_path}: {e}"
+                    logger.error(error_msg)
+                    self.result.errors.append(error_msg)
+                    
+        return note_files_map
 
-
-def generate_hugo_posts(
-    note_files_map,
-    inline_links,
-    obsidian_vault_path,
-    hugo_project_path,
-    hugo_attachment_folder_name,
-    frontmatter_format: str = "yaml",
-):
-    # check be linked notes
-    for uri in inline_links:
-        type_ = inline_links[uri]["type"]
-        if type_ == "note":
-            note_abs_path = inline_links[uri].get("note_abs_path")
-            if not note_abs_path in note_files_map:
-                logging.warn(f"Invalid link. Linked note not be converted: {uri}")
-                # use empty value to instead
-                note_files_map[note_abs_path] = None
-
-    count = 0
-    for note_abs_path, post_abs_path in note_files_map.items():
-        if not post_abs_path:  # be linked note that not be converted
-            continue
-
-        count += 1
-        # read note
-        note_raw = open(note_abs_path, "r", encoding="utf-8").read()
-        note = frontmatter.loads(note_raw)
-
-        # prepare frontmatter for SSGs (Hugo/Zola)
-        # Hugo: https://gohugo.io/content-management/front-matter/
-        # Zola: https://www.getzola.org/documentation/content/page/#front-matter
-        metadata = note.metadata
-
-        title = metadata.get("title", "").strip()
-        if not title:
-            title = os.path.splitext(os.path.basename(note_abs_path))[0]
-            title = html.escape(title)
-        metadata["title"] = title
-
-        post_date = metadata.get("date")
-        if not post_date:
-            post_date = metadata.get("created")
-        if not post_date:
-            post_date = get_file_creation_time(note_abs_path)
-        if post_date:
-            metadata["date"] = post_date
-
-        last_mod = metadata.get("lastmod")
-        if not last_mod:
-            last_mod = metadata.get("updated")
-        if not last_mod:
-            last_mod = metadata.get("modified")
-        if not last_mod:
-            last_mod = get_file_modification_time(note_abs_path)
-        if last_mod:
-            metadata["lastmod"] = last_mod
-
-        metadata["tags"] = metadata.get("tags", [])
-
-        metadata, content = replace_inline_links(
-            metadata,
-            note.content,
-            inline_links,
-            note_files_map,
-            obsidian_vault_path,
-            hugo_project_path,
-            hugo_attachment_folder_name,
+    def _should_exclude_note(self, note_path: Path) -> bool:
+        """Check if note should be excluded from conversion.
+        
+        Args:
+            note_path: Path to the note
+            
+        Returns:
+            True if note should be excluded
+        """
+        import re
+        
+        dir_name = note_path.parent.name
+        return any(
+            re.search(pattern, dir_name) 
+            for pattern in self.config.excluded_dirs
         )
 
-        post = frontmatter.Post(content, **metadata)
+    def _generate_post_path(
+        self, 
+        note: frontmatter.Post, 
+        note_path: Path, 
+        post_folder: Path
+    ) -> Path:
+        """Generate destination path for a post.
         
-        # Output with specified format
-        if frontmatter_format == "toml":
+        Args:
+            note: Parsed frontmatter post
+            note_path: Source note path
+            post_folder: Destination folder
+            
+        Returns:
+            Destination post path
+        """
+        # Get slug from metadata or generate from filename
+        slug = note.metadata.get("slug")
+        if not slug:
+            filename = note_path.stem
+            slug = slugify_path(add_spaces_to_content(filename))
+        
+        # Add language suffix if specified
+        lang = note.metadata.get("lang")
+        if lang:
+            post_filename = f"{slug}.{lang}.md"
+        else:
+            post_filename = f"{slug}.md"
+            
+        return post_folder / post_filename
+
+    def _clean_destination_directories(self, folder_map: Dict[Path, Path]) -> None:
+        """Clean destination directories before conversion.
+        
+        Args:
+            folder_map: Mapping of source to destination folders
+        """
+        logger.info("Cleaning destination directories...")
+        
+        dirs_to_clean = list(folder_map.values())
+        
+        # Add attachment directory
+        attachment_dir = self.config.hugo_project_path / "static"
+        for part in self.config.attachment_folder_name.split("/"):
+            attachment_dir = attachment_dir / part
+        dirs_to_clean.append(attachment_dir)
+        
+        for dir_path in dirs_to_clean:
+            # Avoid cleaning the Hugo project root
+            if dir_path.resolve() == self.config.hugo_project_path.resolve():
+                continue
+                
+            if dir_path.exists():
+                logger.info(f"Cleaning directory: {dir_path}")
+                for file_path in dir_path.rglob("*"):
+                    if file_path.is_file() and not file_path.name.startswith("_index."):
+                        file_path.unlink()
+
+    def _copy_attachments(self) -> None:
+        """Copy attachment files to destination."""
+        logger.info("Copying attachments...")
+        
+        dest_dir = self.config.hugo_project_path / "static"
+        for part in self.config.attachment_folder_name.split("/"):
+            dest_dir = dest_dir / part
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        
+        for link in self.link_processor.inline_links.values():
+            if link.link_type != LinkType.FILE or not link.source_path:
+                continue
+                
+            try:
+                # Generate destination filename
+                if self.config.md5_attachment:
+                    dest_filename = (
+                        calc_file_md5(link.source_path) + link.source_path.suffix
+                    )
+                else:
+                    rel_path = link.source_path.relative_to(self.config.obsidian_vault_path)
+                    rel_dir = rel_path.parent
+                    filename_base = f"{rel_dir}-{link.source_path.stem}".replace("/", "-")
+                    slug_filename = slugify_path(add_spaces_to_content(filename_base))
+                    dest_filename = slug_filename + link.source_path.suffix
+                
+                dest_path = dest_dir / dest_filename
+                shutil.copyfile(link.source_path, dest_path)
+                
+                # Update link with destination filename
+                link.dest_filename = dest_filename
+                self.result.copied_attachments += 1
+                
+            except Exception as e:
+                error_msg = f"Failed to copy attachment {link.source_path}: {e}"
+                logger.error(error_msg)
+                self.result.errors.append(error_msg)
+
+    def _generate_posts(self, note_files_map: Dict[Path, Path]) -> None:
+        """Generate Hugo/Zola posts from Obsidian notes.
+        
+        Args:
+            note_files_map: Mapping of note paths to post paths
+        """
+        # Check for linked notes that aren't being converted
+        self._validate_note_links(note_files_map)
+        
+        for note_path, post_path in note_files_map.items():
+            if not post_path:  # Skip notes that shouldn't be converted
+                continue
+                
+            try:
+                self._convert_single_note(note_path, post_path, note_files_map)
+                self.result.converted_notes += 1
+                
+            except Exception as e:
+                error_msg = f"Failed to convert note {note_path}: {e}"
+                logger.error(error_msg)
+                self.result.errors.append(error_msg)
+
+    def _validate_note_links(self, note_files_map: Dict[Path, Path]) -> None:
+        """Validate that linked notes exist in the conversion map.
+        
+        Args:
+            note_files_map: Mapping of note paths to post paths
+        """
+        for link in self.link_processor.inline_links.values():
+            if link.link_type == LinkType.NOTE and link.source_path:
+                if link.source_path not in note_files_map:
+                    warning_msg = f"Linked note not being converted: {link.original_uri}"
+                    logger.warning(warning_msg)
+                    self.result.warnings.append(warning_msg)
+                    # Add placeholder to avoid errors during link replacement
+                    note_files_map[link.source_path] = None
+
+    def _convert_single_note(
+        self, 
+        note_path: Path, 
+        post_path: Path, 
+        note_files_map: Dict[Path, Path]
+    ) -> None:
+        """Convert a single note to a post.
+        
+        Args:
+            note_path: Source note path
+            post_path: Destination post path
+            note_files_map: Mapping of all note paths to post paths
+        """
+        # Read and parse note
+        note_content = note_path.read_text(encoding="utf-8")
+        note = frontmatter.loads(note_content)
+        
+        # Process metadata
+        metadata = self._process_metadata(note.metadata, note_path)
+        
+        # Replace links in content
+        processed_content = self.link_processor.replace_links_in_content(
+            note.content,
+            note_files_map,
+            self.config.hugo_project_path,
+            self.config.attachment_folder_name,
+        )
+        
+        # Create post with processed data
+        post = frontmatter.Post(processed_content, **metadata.to_dict())
+        
+        # Generate output based on frontmatter format
+        if self.config.frontmatter_format == FrontmatterFormat.TOML:
             output = frontmatter.dumps(post, handler=CustomTOMLHandler())
         else:
             output = frontmatter.dumps(post)
+        
+        # Ensure destination directory exists and write file
+        post_path.parent.mkdir(parents=True, exist_ok=True)
+        post_path.write_text(output, encoding="utf-8")
 
-        dest_dir = os.path.dirname(post_abs_path)
-        if not os.path.exists(dest_dir):
-            os.makedirs(dest_dir, exist_ok=True)
-        open(post_abs_path, "w", encoding="utf-8").write(output)
-
-    logging.info(f"Total {count} notes converted.")
-
-
-def replace_inline_links(
-    metadata,
-    content,
-    inline_links,
-    note_files_map,
-    obsidian_vault_path,
-    hugo_project_path,
-    hugo_attachment_folder_name,
-):
-    # - note_files_map = {note_abs_path:post_abs_path}
-    # - inline_links = {uri: {"type": "anchor|file|note", "note_abs_path": "src/file/"}}
-
-    # convert wiki links to md links: [[file_path]] -> md [](file_path)
-    content = re.sub(r"\[\[(.*?)\]\]", r"\[\1\](\1)", content)
-
-    content_dir = os.path.join(hugo_project_path, "content")
-
-    video_tag_template = """
-<video controls style="width:100%; max-height:480px;border:1px solid #ccc;border-radius:5px;">
-    <source src="{uri}" type="video/mp4">
-</video>
-"""
-    attachment_rel_path = "/" + hugo_attachment_folder_name.strip("/") + "/"
-
-    for origin_uri in inline_links:
-        type_ = inline_links[origin_uri]["type"]
-        if type_ == "file":
-            dest_filename = inline_links[origin_uri]["dest_filename"]
-            dest_uri = attachment_rel_path + dest_filename
-            ext_name = os.path.splitext(dest_filename)[1]
-
-            # replace links in metadata
-            metadata = _replace_inline_links_in_var(metadata, origin_uri, dest_uri)
-
-            # replace links in content
-            if ext_name in [".mp4", ".webm", ".ogg"]:
-                # video, replace md link with html tag
-                pos = _find_md_link_pos(content, origin_uri)
-                if not pos:
-                    continue
-                pos_start, pos_end = pos
-                tag_html = video_tag_template.format(uri=dest_uri)
-                content = content[:pos_start] + tag_html + content[pos_end + 1 :]
-            else:
-                anchor = inline_links[origin_uri]["anchor"]
-                if anchor:
-                    dest_uri += f"#{anchor}"
-                content = content.replace(f"]({origin_uri})", f"]({dest_uri})")
-                continue
-
-        elif type_ == "anchor":
-            dest_uri = "#" + inline_links[origin_uri]["anchor"]
-            content = content.replace(f"]({origin_uri})", f"]({dest_uri})")
-            continue
-        elif type_ == "note":
-            note_abs_path = inline_links[origin_uri]["note_abs_path"]
-            post_abs_path = note_files_map[note_abs_path]
-            if not post_abs_path:  # be linked note that not be converted
-                dest_uri = "#"
-            else:
-                # Read the target note to check if it has a lang field
-                target_note_raw = open(note_abs_path, "r", encoding="utf-8").read()
-                target_note = frontmatter.loads(target_note_raw)
-                target_lang = target_note.metadata.get("lang")
-                
-                dest_rel_path = os.path.relpath(post_abs_path, content_dir)
-                dest_uri = os.path.splitext(dest_rel_path)[0]
-                
-                # If the target note has a lang field, the URL should include it
-                if target_lang:
-                    # Remove the language suffix from the URI if it exists
-                    if dest_uri.endswith(f".{target_lang}"):
-                        dest_uri = dest_uri[:-len(f".{target_lang}")]
-                    # Add the language prefix to the URI
-                    dest_uri = f"{target_lang}/{dest_uri}"
-                
-                dest_uri = urllib.parse.quote(dest_uri)
-
-            anchor = inline_links[origin_uri]["anchor"]
-            if anchor:
-                dest_uri += f"#{anchor}"
-            content = content.replace(f"]({origin_uri})", f"](/{dest_uri})")
-            continue
-        else:
-            raise ValueError(f"Unknown type: {type_}")
-
-    return metadata, content
-
-
-def _find_md_link_pos(content, uri):
-    pos = content.find(f"]({uri}")
-    if pos == -1:
-        return None
-    pos_end = content.find(")", pos)
-    pos_start = content.rfind("![", 0, pos)
-    return (pos_start, pos_end)
-
-
-def copy_attachments(
-    inline_links,
-    obsidian_vault_path,
-    hugo_project_path,
-    hugo_attachment_folder_name,
-    onoff_md5_attachment,
-):
-    """
-    - inline_links: {uri: {"type": "file|note", "note_abs_path": "/src/file", "dest_filename":""}}
-    """
-
-    dest_dir = os.path.join(hugo_project_path, "static")
-    for name in hugo_attachment_folder_name.split("/"):
-        dest_dir = os.path.join(dest_dir, name)
-    os.makedirs(dest_dir, exist_ok=True)
-
-    logging.info("Coping attachments ...")
-
-    for uri in inline_links:
-        item = inline_links[uri]
-        if item["type"] != "file":
-            continue
-        src_path = item["note_abs_path"]
-        file_name, ext_name = os.path.splitext(os.path.basename(src_path))
-        if onoff_md5_attachment:
-            dest_filename = calc_file_md5(src_path) + ext_name
-        else:
-            file_rel_path_in_vault = os.path.relpath(src_path, obsidian_vault_path)
-            rel_path = os.path.dirname(file_rel_path_in_vault)
-            slug_filename = slugify(add_spaces_to_content(rel_path + "-" + file_name))
-            dest_filename = slug_filename + ext_name
-        dest_path = os.path.join(dest_dir, dest_filename)
-
-        shutil.copyfile(src_path, dest_path)
-
-        inline_links[uri]["dest_filename"] = dest_filename
-
-    return inline_links
-
-
-def clean_up_dest_dirs(hugo_project_path, folders_map, hugo_attachment_folder_name):
-    logging.info("Cleaning up destination directories ...")
-    # folders_map = {src_note_folder:dest_post_folder}
-    waiting_clean_dirs = []
-    for dest_folder in folders_map.values():
-        waiting_clean_dirs.append(dest_folder)
-    # add attachments dir
-    attachment_dir = os.path.join(hugo_project_path, "static")
-    for name in hugo_attachment_folder_name.split("/"):
-        attachment_dir = os.path.join(attachment_dir, name)
-    waiting_clean_dirs.append(attachment_dir)
-
-    # clean up dest dirs
-    for dirpath in waiting_clean_dirs:
-        # avoid cleaning hugo project dir
-        if dirpath.rstrip("/") == hugo_project_path.rstrip("/"):
-            continue
-
-        logging.info(f"Cleaning directory: {dirpath} ...")
-        for file in pathlib.Path(dirpath).rglob("*"):
-            if file.is_dir():
-                continue
-            if file.name.startswith("_index."):
-                continue  # avoid custom index page
-            # delete the file
-            file.unlink(True)
-
-
-def trans_url_anchor(url_anchor: str):
-    url_anchor = url_anchor.strip().lower()
-    if not url_anchor:
-        return ""
-
-    s = urllib.parse.unquote(url_anchor).replace(" ", "-")
-    return urllib.parse.quote(s)
-
-
-def _replace_inline_links_in_var(var: any, origin_uri: str, dest_uri: str):
-    if isinstance(var, str):
-        return var.replace(origin_uri, dest_uri)
-    elif isinstance(var, list):
-        return [
-            _replace_inline_links_in_var(item, origin_uri, dest_uri) for item in var
-        ]
-    elif isinstance(var, dict):
-        return {
-            _replace_inline_links_in_var(
-                k, origin_uri, dest_uri
-            ): _replace_inline_links_in_var(v, origin_uri, dest_uri)
-            for k, v in var.items()
-        }
-    else:
-        return var
+    def _process_metadata(self, raw_metadata: dict, note_path: Path) -> NoteMetadata:
+        """Process and normalize note metadata.
+        
+        Args:
+            raw_metadata: Raw metadata from frontmatter
+            note_path: Path to the note file
+            
+        Returns:
+            Processed metadata object
+        """
+        metadata = NoteMetadata()
+        
+        # Store original metadata to preserve all fields
+        metadata._original_metadata = raw_metadata.copy()
+        
+        # Process title
+        metadata.title = raw_metadata.get("title", "").strip()
+        if not metadata.title:
+            metadata.title = html.escape(note_path.stem)
+        
+        # Process dates
+        metadata.date = (
+            raw_metadata.get("date") or 
+            raw_metadata.get("created") or 
+            get_file_creation_time(note_path)
+        )
+        
+        metadata.lastmod = (
+            raw_metadata.get("lastmod") or 
+            raw_metadata.get("updated") or 
+            raw_metadata.get("modified") or 
+            get_file_modification_time(note_path)
+        )
+        
+        # Process other fields
+        metadata.tags = raw_metadata.get("tags", [])
+        metadata.slug = raw_metadata.get("slug")
+        metadata.lang = raw_metadata.get("lang")
+        
+        return metadata

@@ -1,17 +1,66 @@
-**/.DS_Store
-**/Thumbs.db_
+# Project Related
+.env/
 
-**/__pycache__
-**/__pypackages__
-**/.pytest_cache
-**/*.pyc
+# Resource Files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.ico
+*.webp
+*.svg
 
-**/.env
-**/.venv
-**/.svn
-**/.vscode
-**/*.lock
+# Built & Output
+build/
+dist/
+coverage/
+src-tauri/target
+target
+dist-ssr
+*.local
 
-**/tmp.*
-.pdm.toml
-.pdm-python
+# Test
+test.*
+test/
+test_*
+test-*
+examples/*.png
+
+# IDE
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.sublime-*
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.cursor*
+
+# Dependency & Cache
+node_modules/
+.npm/
+package-lock.json
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.tsbuildinfo
+.cache/
+.temp/
+.tmp/
+.swp
+.swo
+.suo
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# OS Files
+.DS_Store
+Thumbs.db
