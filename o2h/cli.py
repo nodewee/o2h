@@ -22,6 +22,12 @@ def create_parser() -> argparse.ArgumentParser:
 A markdown format transpiler for Obsidian to Hugo/Zola.
 Convert Obsidian vault notes to Hugo or Zola content posts.
 
+Features:
+  - Smart link processing for notes, attachments, and anchors
+  - Automatic internal linking based on frontmatter link_words
+  - Multi-language support and flexible folder mapping
+  - Support for both Hugo (YAML) and Zola (TOML) frontmatter formats
+
 Examples:
   # Convert for Hugo (YAML frontmatter - default)
   o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs
@@ -31,6 +37,9 @@ Examples:
 
   # Convert specific folders with custom mappings
   o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
+  
+  # Disable internal linking feature
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
 """
 
     parser = argparse.ArgumentParser(
@@ -92,6 +101,20 @@ Examples:
         choices=["yaml", "toml"],
         default="yaml",
         metavar="FORMAT",
+    )
+
+    parser.add_argument(
+        "--disable-internal-linking",
+        help="Disable automatic internal linking based on link_words",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--internal-link-max",
+        help="Maximum internal links per word per article (default: 1)",
+        type=int,
+        default=1,
+        metavar="N",
     )
 
     parser.add_argument(
@@ -186,6 +209,8 @@ def create_config_from_args(args: argparse.Namespace) -> ConversionConfig:
         clean_dest_dirs=args.clean_dest,
         md5_attachment=args.md5_attachment,
         frontmatter_format=frontmatter_format,
+        enable_internal_linking=not args.disable_internal_linking,
+        internal_link_max_per_article=args.internal_link_max,
     )
 
 
@@ -215,6 +240,8 @@ def main() -> None:
             print(f"\n✅ Conversion completed successfully!")
             print(f"   📝 {result.converted_notes} notes converted")
             print(f"   📎 {result.copied_attachments} attachments copied")
+            if result.internal_links_added > 0:
+                print(f"   🔗 {result.internal_links_added} internal links added")
             
             if result.warnings:
                 print(f"\n⚠️  {len(result.warnings)} warnings:")

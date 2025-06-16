@@ -12,6 +12,14 @@
   - 对无效的内部链接发出警告
   - 自动将视频附件（.mp4, .webm, .ogg）链接转换为HTML video tag
 
+- 文章内链功能 (新增!)
+  - **自动交叉引用**: 在前置元数据中定义 `link_words` 字段，自动创建内部链接
+  - **智能词匹配**: 支持英文单词边界和中文文本匹配
+  - **冲突解决**: 处理重复的链接词，支持优先级系统
+  - **避免自链**: 避免链接到当前文章定义的关键词
+  - **可配置限制**: 控制每篇文章中每个词的最大链接数（默认：1）
+  - **保护现有链接**: 跳过已经是链接的词语
+
 - 文件夹
   - 默认转换笔记库中的所有文件夹（自动排除模板文件夹）
   - 可指定一个或多个文件夹
@@ -56,4 +64,10 @@ python . "Obsidian笔记库路径" "Zola项目路径" --folders blogs --frontmat
 
 # 转换指定文件夹并自定义映射关系
 python . "Obsidian笔记库路径" "Hugo项目路径" --folders "blogs>posts notes>articles"
+
+# 禁用文章内链功能
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --disable-internal-linking
+
+# 设置每个词的最大链接数
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --internal-link-max 2
 ```

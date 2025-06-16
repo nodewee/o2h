@@ -26,6 +26,7 @@ from o2h.utils import (
     yield_subfolders,
 )
 from .link_processor import LinkProcessor
+from .linker import InternalLinker
 from .logger import logger
 from .models import (
     ConversionConfig,
@@ -148,6 +149,9 @@ class ObsidianToHugoConverter:
         """
         self.config = config
         self.link_processor = LinkProcessor(config.obsidian_vault_path)
+        self.internal_linker = None
+        if config.enable_internal_linking:
+            self.internal_linker = InternalLinker(config.internal_link_max_per_article)
         self.result = ConversionResult()
 
     def convert(self) -> ConversionResult:
@@ -172,10 +176,22 @@ class ObsidianToHugoConverter:
             # Copy attachments
             self._copy_attachments()
             
+            # Build internal link registry if enabled
+            if self.internal_linker:
+                content_dir = self.config.hugo_project_path / "content"
+                self.internal_linker.build_link_registry(note_files_map, content_dir)
+            
             # Generate Hugo/Zola posts
             self._generate_posts(note_files_map)
             
+            # Update result with internal linking statistics
+            if self.internal_linker:
+                stats = self.internal_linker.get_statistics()
+                self.result.internal_links_added = stats["total_links_added"]
+            
             logger.info(f"Conversion completed! {self.result.converted_notes} notes converted.")
+            if self.internal_linker:
+                logger.info(f"Added {self.result.internal_links_added} internal links.")
             
         except Exception as e:
             error_msg = f"Conversion failed: {e}"
@@ -460,6 +476,14 @@ class ObsidianToHugoConverter:
             self.config.attachment_folder_name,
         )
         
+        # Apply internal links if enabled
+        if self.internal_linker:
+            processed_content = self.internal_linker.apply_internal_links(
+                processed_content,
+                note_path,
+                metadata
+            )
+        
         # Create post with processed data
         post = frontmatter.Post(processed_content, **metadata.to_dict())
         
@@ -511,5 +535,14 @@ class ObsidianToHugoConverter:
         metadata.tags = raw_metadata.get("tags", [])
         metadata.slug = raw_metadata.get("slug")
         metadata.lang = raw_metadata.get("lang")
+        
+        # Process link_words for internal linking
+        link_words = raw_metadata.get("link_words", [])
+        if isinstance(link_words, str):
+            metadata.link_words = [link_words]
+        elif isinstance(link_words, list):
+            metadata.link_words = link_words
+        else:
+            metadata.link_words = []
         
         return metadata

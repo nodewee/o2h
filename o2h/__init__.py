@@ -7,10 +7,12 @@ __license__ = "MIT"
 
 from .converter import ObsidianToHugoConverter
 from .models import ConversionConfig
+from .linker import InternalLinker
 
 __all__ = [
     "ObsidianToHugoConverter",
-    "ConversionConfig",
+    "ConversionConfig", 
+    "InternalLinker",
     "__version__",
     "__title__",
 ] 

@@ -13,6 +13,14 @@ Convert **O**bsidian notes **to** **H**ugo/Zola posts - A modern, type-safe Pyth
 - Convert video attachment (.mp4, .webm, .ogg) links to HTML video tags
 - Support for external link preservation
 
+### 🔗 Internal Linking (NEW!)
+- **Automatic cross-referencing**: Define `link_words` in frontmatter to create automatic internal links
+- **Smart word matching**: Supports both English word boundaries and Chinese text matching
+- **Conflict resolution**: Handle duplicate link words with priority system
+- **Self-link prevention**: Avoid linking to words defined by the current article
+- **Configurable limits**: Control maximum links per word per article (default: 1)
+- **Preserve existing links**: Skip words that are already part of existing links
+
 ### 📁 Flexible Folder Management
 - Convert all folders in the notes library by default (automatically exclude template folders)
 - Specify one or more folders with custom mappings
@@ -70,6 +78,9 @@ o2h "/path/to/obsidian/vault" "/path/to/zola/project" --folders blogs --frontmat
 # Convert specific folders with custom mappings
 o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
 
+# Disable internal linking feature
+o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
+
 # Advanced usage with all options
 o2h "/path/to/vault" "/path/to/project" \
     --folders "blogs>posts" \
@@ -77,6 +88,7 @@ o2h "/path/to/vault" "/path/to/project" \
     --md5-attachment \
     --clean-dest \
     --frontmatter-format toml \
+    --internal-link-max 2 \
     --verbose
 ```
 
@@ -99,8 +111,17 @@ result = converter.convert()
 
 if result.success:
     print(f"✅ Converted {result.converted_notes} notes!")
+    print(f"🔗 Added {result.internal_links_added} internal links!")
 else:
     print(f"❌ Errors: {result.errors}")
+
+# Advanced configuration with internal linking
+config = ConversionConfig(
+    obsidian_vault_path=Path("/path/to/obsidian/vault"),
+    hugo_project_path=Path("/path/to/hugo/project"),
+    enable_internal_linking=True,
+    internal_link_max_per_article=2,  # Allow up to 2 links per word per article
+)
 ```
 
 ## 🏗️ Architecture
@@ -131,6 +152,47 @@ o2h/
 - **NoteMetadata**: Structured metadata processing
 - **ConversionResult**: Comprehensive result reporting
 
+## 📝 Internal Linking Usage
+
+### Setting up link_words in frontmatter
+
+```yaml
+---
+title: "Machine Learning Basics"
+date: "2024-01-15"
+tags: ["AI", "ML"]
+link_words: 
+  - "machine learning"
+  - "artificial intelligence" 
+  - "neural networks"
+---
+
+This article introduces machine learning concepts...
+```
+
+```toml
++++
+title = "Machine Learning Basics"
+date = "2024-01-15"
+tags = ["AI", "ML"]
+link_words = [
+  "machine learning",
+  "artificial intelligence", 
+  "neural networks"
+]
++++
+
+This article introduces machine learning concepts...
+```
+
+### How it works
+
+1. **Registry Building**: O2H scans all articles and builds a registry of `link_words` → article URLs
+2. **Smart Linking**: When processing each article, it finds these keywords in other articles' content
+3. **Automatic Links**: First occurrence of each keyword gets converted to a link (configurable limit)
+4. **Conflict Resolution**: If multiple articles define the same `link_words`, the first one (or higher priority) wins
+5. **Self-Link Prevention**: Articles don't link to their own defined keywords
+
 ## 🔧 Configuration Options
 
 | Option | Description | Default |
@@ -140,6 +202,8 @@ o2h/
 | `--md5-attachment` | Use MD5 hash for attachment names | `false` |
 | `--clean-dest` | Clean target directories first | `false` |
 | `--frontmatter-format` | Frontmatter format (`yaml`/`toml`) | `yaml` |
+| `--disable-internal-linking` | Disable automatic internal linking | `false` |
+| `--internal-link-max` | Max internal links per word per article | `1` |
 | `--verbose` | Enable detailed logging | `false` |
 
 ## 🐛 Error Handling
