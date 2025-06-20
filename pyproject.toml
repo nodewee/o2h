@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "o2h"
-version = "0.3.7"
+version = "0.3.8"
 description = "Convert Obsidian notes to Hugo/Zola posts"
 readme = "README.md"
 license = {text = "MIT"}

@@ -287,6 +287,11 @@ class ObsidianToHugoConverter:
                         note.content, note_folder, str(note_path)
                     )
                     
+                    # Extract links from frontmatter
+                    self.link_processor.extract_links_from_frontmatter(
+                        note.metadata, note_folder, str(note_path)
+                    )
+                    
                     # Generate post path
                     post_path = self._generate_post_path(note, note_path, post_folder)
                     note_files_map[note_path] = post_path
@@ -476,6 +481,14 @@ class ObsidianToHugoConverter:
             self.config.attachment_folder_name,
         )
         
+        # Replace links in frontmatter metadata
+        processed_metadata_dict = self.link_processor.replace_links_in_frontmatter(
+            metadata.to_dict(),
+            note_files_map,
+            self.config.hugo_project_path,
+            self.config.attachment_folder_name,
+        )
+        
         # Apply internal links if enabled
         if self.internal_linker:
             processed_content = self.internal_linker.apply_internal_links(
@@ -485,7 +498,7 @@ class ObsidianToHugoConverter:
             )
         
         # Create post with processed data
-        post = frontmatter.Post(processed_content, **metadata.to_dict())
+        post = frontmatter.Post(processed_content, **processed_metadata_dict)
         
         # Generate output based on frontmatter format
         if self.config.frontmatter_format == FrontmatterFormat.TOML:

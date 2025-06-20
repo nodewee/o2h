@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import frontmatter
 
+from .code_block_detector import is_range_in_code_block
 from .logger import logger
 from .models import InternalLinkRegistry, LinkWord, NoteMetadata
 
@@ -202,8 +203,8 @@ class InternalLinker:
         for match in matches:
             start, end = match.span()
             
-            # Check if this match is inside a code block or inline code
-            if self._is_in_code_block(content, start, end):
+            # Check if this match is inside a code block using the new detector
+            if is_range_in_code_block(content, start, end):
                 continue
             
             # Replace this occurrence
@@ -293,49 +294,6 @@ class InternalLinker:
             re.search(link_pattern, content, re.IGNORECASE) or
             re.search(html_link_pattern, content, re.IGNORECASE)
         )
-    
-    def _is_in_code_block(self, content: str, start: int, end: int) -> bool:
-        """Check if the given position is inside a code block or inline code.
-        
-        Args:
-            content: Full content
-            start: Start position of the word
-            end: End position of the word
-            
-        Returns:
-            True if the word is inside a code block
-        """
-        # Check for fenced code blocks (```)
-        before_text = content[:start]
-        after_text = content[end:]
-        
-        # Count triple backticks before the word
-        triple_backticks_before = before_text.count('```')
-        
-        # If odd number of triple backticks before, we're inside a code block
-        if triple_backticks_before % 2 == 1:
-            return True
-        
-        # Check for inline code (single backticks)
-        # Find the last backtick before our word
-        last_backtick_before = before_text.rfind('`')
-        if last_backtick_before != -1:
-            # Find the next backtick after our word
-            next_backtick_after = after_text.find('`')
-            if next_backtick_after != -1:
-                # Check if there's an even number of backticks between them
-                text_between = content[last_backtick_before + 1:end + next_backtick_after + 1]
-                if text_between.count('`') == 1:  # Only the closing backtick
-                    return True
-        
-        # Check for indented code blocks (4 spaces at line start)
-        lines_before = before_text.split('\n')
-        if lines_before:
-            current_line = lines_before[-1]
-            if current_line.startswith('    ') or current_line.startswith('\t'):
-                return True
-        
-        return False
     
     def get_statistics(self) -> Dict[str, int]:
         """Get internal linking statistics.

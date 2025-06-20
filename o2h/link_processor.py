@@ -4,11 +4,23 @@ import html
 import re
 import urllib.parse
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .code_block_detector import is_range_in_code_block
 from .logger import logger
 from .models import InlineLink, LinkType
 from .utils import slugify_path
+
+
+# Frontmatter fields to ignore during link processing
+IGNORED_FRONTMATTER_FIELDS = {
+    "title",
+    "description", 
+    "slug",
+    "date",
+    "taxonomies",
+    "tags"
+}
 
 
 class LinkProcessor:
@@ -42,12 +54,148 @@ class LinkProcessor:
         # Convert wiki links to markdown links: [[file_path]] -> [file_path](file_path)
         content = re.sub(r"\[\[(.*?)\]\]", r"[\1](\1)", content)
         
-        # Find all markdown links
+        # Find all markdown links and check if they're in code blocks
         link_pattern = r"\[.*?\]\((.*?)\)"
-        for original_uri in re.findall(link_pattern, content):
-            self._process_link(original_uri, note_folder, note_filepath)
+        for match in re.finditer(link_pattern, content):
+            original_uri = match.group(1)
+            link_start = match.start()
+            link_end = match.end()
+            
+            # Check if this link is inside a code block
+            if not is_range_in_code_block(content, link_start, link_end):
+                self._process_link(original_uri, note_folder, note_filepath)
         
         return content
+    
+    def extract_links_from_frontmatter(
+        self,
+        metadata: Dict[str, Any],
+        note_folder: Path,
+        note_filepath: str
+    ) -> None:
+        """Extract links from frontmatter metadata.
+        
+        Args:
+            metadata: Frontmatter metadata dictionary
+            note_folder: Directory containing the note
+            note_filepath: Path to the note file
+        """
+        # Recursively search for links in metadata values, skipping ignored fields
+        self._extract_links_from_metadata_dict(metadata, note_folder, note_filepath)
+    
+    def _extract_links_from_metadata_dict(
+        self,
+        metadata_dict: Dict[str, Any],
+        note_folder: Path,
+        note_filepath: str
+    ) -> None:
+        """Extract links from metadata dictionary, skipping ignored fields.
+        
+        Args:
+            metadata_dict: Metadata dictionary to process
+            note_folder: Directory containing the note
+            note_filepath: Path to the note file
+        """
+        for key, value in metadata_dict.items():
+            # Skip ignored fields
+            if key.lower() in IGNORED_FRONTMATTER_FIELDS:
+                continue
+            
+            self._extract_links_from_metadata_value(value, note_folder, note_filepath)
+    
+    def _extract_links_from_metadata_value(
+        self,
+        value: Any,
+        note_folder: Path,
+        note_filepath: str
+    ) -> None:
+        """Recursively extract links from metadata values.
+        
+        Args:
+            value: Value to search for links
+            note_folder: Directory containing the note
+            note_filepath: Path to the note file
+        """
+        if isinstance(value, str):
+            # Look for markdown links in string values
+            link_pattern = r"\[.*?\]\((.*?)\)"
+            for match in re.finditer(link_pattern, value):
+                original_uri = match.group(1)
+                link_start = match.start()
+                link_end = match.end()
+                
+                # Check if this link is inside a code block (for multiline frontmatter values)
+                if not is_range_in_code_block(value, link_start, link_end):
+                    self._process_link(original_uri, note_folder, note_filepath)
+            
+            # Also check if the string itself is a file path (direct file reference)
+            # But only if it's not inside a code block
+            if self._is_potential_file_path(value) and not is_range_in_code_block(value, 0, len(value)):
+                self._process_link(value, note_folder, note_filepath)
+                
+        elif isinstance(value, list):
+            # Recursively process list items
+            for item in value:
+                self._extract_links_from_metadata_value(item, note_folder, note_filepath)
+        elif isinstance(value, dict):
+            # Recursively process dictionary values (no field filtering here since this is nested)
+            for item_value in value.values():
+                self._extract_links_from_metadata_value(item_value, note_folder, note_filepath)
+    
+    def _is_potential_file_path(self, text: str) -> bool:
+        """Check if a string could be a file path that needs processing.
+        
+        Args:
+            text: String to check
+            
+        Returns:
+            True if string looks like a file path
+        """
+        if not text or len(text.strip()) == 0:
+            return False
+            
+        text = text.strip()
+        
+        # Skip if it's a URL (external link)
+        if self._is_external_link(text):
+            return False
+            
+        # Skip if it's just an anchor
+        if text.startswith("#"):
+            return False
+            
+        # Check for common file path patterns
+        # Relative paths starting with ./ or ../
+        if text.startswith("./") or text.startswith("../"):
+            return True
+            
+        # Paths that contain file extensions
+        if "." in text:
+            potential_ext = text.split(".")[-1].lower()
+            # Common file extensions that might be in frontmatter
+            common_extensions = {
+                # Images
+                "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "tiff", "ico",
+                # Documents
+                "pdf", "md", "markdown", "txt", "doc", "docx",
+                # Media
+                "mp4", "webm", "ogg", "mp3", "wav", "flac",
+                # Other assets
+                "css", "js", "json", "xml", "yaml", "yml", "toml"
+            }
+            if potential_ext in common_extensions:
+                # Further check: should not contain spaces (unless quoted) and should not be too long
+                if len(text) < 200 and (" " not in text or (text.startswith('"') and text.endswith('"'))):
+                    return True
+                    
+        # Paths that look like directory/file patterns (contain /)
+        if "/" in text and not text.startswith("http") and len(text) < 200:
+            # Check if it could be a file path
+            parts = text.split("/")
+            if len(parts) >= 2 and all(part for part in parts):  # No empty parts
+                return True
+                
+        return False
     
     def _process_link(
         self, 
@@ -170,6 +318,229 @@ class LinkProcessor:
         decoded = urllib.parse.unquote(anchor).replace(" ", "-")
         return urllib.parse.quote(decoded)
     
+    def replace_links_in_frontmatter(
+        self,
+        metadata: Dict[str, Any],
+        note_files_map: Dict[Path, Path],
+        hugo_project_path: Path,
+        attachment_folder_name: str,
+    ) -> Dict[str, Any]:
+        """Replace links in frontmatter metadata with final URLs.
+        
+        Args:
+            metadata: Original frontmatter metadata
+            note_files_map: Mapping of note paths to post paths
+            hugo_project_path: Hugo project root path
+            attachment_folder_name: Name of attachment folder
+            
+        Returns:
+            Metadata with replaced links
+        """
+        if not metadata:
+            return metadata
+            
+        content_dir = hugo_project_path / "content"
+        attachment_rel_path = f"/{attachment_folder_name.strip('/')}/"
+        
+        # Create a deep copy of metadata to avoid modifying the original
+        import copy
+        processed_metadata = copy.deepcopy(metadata)
+        
+        # Process metadata values, skipping ignored fields
+        self._replace_links_in_metadata_dict(
+            processed_metadata,
+            note_files_map,
+            content_dir,
+            attachment_rel_path
+        )
+        
+        return processed_metadata
+    
+    def _replace_links_in_metadata_dict(
+        self,
+        metadata_dict: Dict[str, Any],
+        note_files_map: Dict[Path, Path],
+        content_dir: Path,
+        attachment_rel_path: str
+    ) -> None:
+        """Replace links in metadata dictionary, skipping ignored fields.
+        
+        Args:
+            metadata_dict: Metadata dictionary to process (modified in place)
+            note_files_map: Mapping of note paths to post paths
+            content_dir: Content directory path
+            attachment_rel_path: Attachment relative path
+        """
+        for key, value in metadata_dict.items():
+            # Skip ignored fields
+            if key.lower() in IGNORED_FRONTMATTER_FIELDS:
+                continue
+                
+            if isinstance(value, str):
+                metadata_dict[key] = self._replace_links_in_string(
+                    value, note_files_map, content_dir, attachment_rel_path
+                )
+            else:
+                self._replace_links_in_metadata_value(
+                    value, note_files_map, content_dir, attachment_rel_path
+                )
+    
+    def _replace_links_in_metadata_value(
+        self,
+        value: Any,
+        note_files_map: Dict[Path, Path],
+        content_dir: Path,
+        attachment_rel_path: str
+    ) -> None:
+        """Recursively replace links in metadata values.
+        
+        Args:
+            value: Value to process (modified in place)
+            note_files_map: Mapping of note paths to post paths
+            content_dir: Content directory path
+            attachment_rel_path: Attachment relative path
+        """
+        if isinstance(value, str):
+            # This is a string, but we need to modify the parent container
+            # This method is called on container values, not leaf strings
+            pass
+        elif isinstance(value, list):
+            # Process list items
+            for i, item in enumerate(value):
+                if isinstance(item, str):
+                    value[i] = self._replace_links_in_string(
+                        item, note_files_map, content_dir, attachment_rel_path
+                    )
+                else:
+                    self._replace_links_in_metadata_value(
+                        item, note_files_map, content_dir, attachment_rel_path
+                    )
+        elif isinstance(value, dict):
+            # Process nested dictionary values (no field filtering for nested dicts)
+            for key, item_value in value.items():
+                if isinstance(item_value, str):
+                    value[key] = self._replace_links_in_string(
+                        item_value, note_files_map, content_dir, attachment_rel_path
+                    )
+                else:
+                    self._replace_links_in_metadata_value(
+                        item_value, note_files_map, content_dir, attachment_rel_path
+                    )
+    
+    def _replace_links_in_string(
+        self,
+        text: str,
+        note_files_map: Dict[Path, Path],
+        content_dir: Path,
+        attachment_rel_path: str
+    ) -> str:
+        """Replace links in a string value.
+        
+        Args:
+            text: String to process
+            note_files_map: Mapping of note paths to post paths
+            content_dir: Content directory path
+            attachment_rel_path: Attachment relative path
+            
+        Returns:
+            String with replaced links
+        """
+        # Convert wiki links to markdown links first
+        modified_text = re.sub(r"\[\[(.*?)\]\]", r"[\1](\1)", text)
+        
+        # Replace markdown-format links
+        for original_uri, link in self.inline_links.items():
+            if f"]({original_uri})" not in modified_text:
+                continue
+                
+            if link.link_type == LinkType.FILE:
+                dest_uri = attachment_rel_path + link.dest_filename
+                if link.anchor:
+                    dest_uri += f"#{link.anchor}"
+                modified_text = modified_text.replace(f"]({original_uri})", f"]({dest_uri})")
+                
+            elif link.link_type == LinkType.ANCHOR:
+                dest_uri = f"#{link.anchor}"
+                modified_text = modified_text.replace(f"]({original_uri})", f"]({dest_uri})")
+                
+            elif link.link_type == LinkType.NOTE:
+                dest_uri = self._get_note_uri(link, note_files_map, content_dir)
+                if link.anchor:
+                    dest_uri += f"#{link.anchor}"
+                modified_text = modified_text.replace(f"]({original_uri})", f"](/{dest_uri})")
+        
+        # Replace direct file path references (not in markdown link format)
+        for original_uri, link in self.inline_links.items():
+            # Skip if this is in markdown format (already handled above)
+            if f"]({original_uri})" in text or f"[" in original_uri:
+                continue
+                
+            # Check if the original URI appears as a direct string in the text
+            if original_uri in modified_text:
+                if link.link_type == LinkType.FILE:
+                    # For files, replace with the attachment path
+                    dest_uri = attachment_rel_path + link.dest_filename
+                    # Remove leading slash if present since frontmatter values usually don't start with /
+                    if dest_uri.startswith("/"):
+                        dest_uri = dest_uri[1:]
+                    modified_text = self._safe_replace_direct_path(modified_text, original_uri, dest_uri)
+                    
+                elif link.link_type == LinkType.NOTE:
+                    # For notes, replace with the note path  
+                    dest_uri = self._get_note_uri(link, note_files_map, content_dir)
+                    # For frontmatter, usually we want relative paths or absolute paths starting with /
+                    if not dest_uri.startswith("/"):
+                        dest_uri = f"/{dest_uri}"
+                    modified_text = self._safe_replace_direct_path(modified_text, original_uri, dest_uri)
+        
+        return modified_text
+    
+    def _safe_replace_direct_path(self, text: str, old_path: str, new_path: str) -> str:
+        """Safely replace a direct file path in text.
+        
+        This is more careful than simple string replacement to avoid replacing
+        parts of longer paths or URLs.
+        
+        Args:
+            text: Text to process
+            old_path: Old file path
+            new_path: New file path
+            
+        Returns:
+            Text with path replaced
+        """
+        if old_path not in text:
+            return text
+            
+        # Handle quoted paths
+        if f'"{old_path}"' in text:
+            return text.replace(f'"{old_path}"', f'"{new_path}"')
+        if f"'{old_path}'" in text:
+            return text.replace(f"'{old_path}'", f"'{new_path}'")
+            
+        # For unquoted paths, be more careful
+        # Split text and check each occurrence
+        parts = text.split(old_path)
+        if len(parts) < 2:
+            return text
+            
+        # Rebuild text, replacing only standalone occurrences
+        result = parts[0]
+        for i in range(1, len(parts)):
+            # Check characters before and after to ensure it's a standalone path
+            char_before = parts[i-1][-1] if parts[i-1] else " "
+            char_after = parts[i][0] if parts[i] else " "
+            
+            # Replace if it's bounded by whitespace, quotes, or start/end of string
+            if (char_before in " \t\n:=" or char_before in '"\'') and \
+               (char_after in " \t\n" or char_after in '"\''):
+                result += new_path + parts[i]
+            else:
+                # Don't replace, keep original
+                result += old_path + parts[i]
+                
+        return result
+    
     def replace_links_in_content(
         self,
         content: str,
@@ -207,17 +578,17 @@ class LinkProcessor:
                 else:
                     if link.anchor:
                         dest_uri += f"#{link.anchor}"
-                    content = content.replace(f"]({original_uri})", f"]({dest_uri})")
+                    content = self._safe_replace_link(content, f"]({original_uri})", f"]({dest_uri})")
                     
             elif link.link_type == LinkType.ANCHOR:
                 dest_uri = f"#{link.anchor}"
-                content = content.replace(f"]({original_uri})", f"]({dest_uri})")
+                content = self._safe_replace_link(content, f"]({original_uri})", f"]({dest_uri})")
                 
             elif link.link_type == LinkType.NOTE:
                 dest_uri = self._get_note_uri(link, note_files_map, content_dir)
                 if link.anchor:
                     dest_uri += f"#{link.anchor}"
-                content = content.replace(f"]({original_uri})", f"](/{dest_uri})")
+                content = self._safe_replace_link(content, f"]({original_uri})", f"](/{dest_uri})")
         
         return content
     
@@ -314,4 +685,36 @@ class LinkProcessor:
                 dest_uri = dest_uri[:-len(f".{target_lang}")]
             dest_uri = f"{target_lang}/{dest_uri}"
             
-        return urllib.parse.quote(dest_uri) 
+        return urllib.parse.quote(dest_uri)
+    
+    def _safe_replace_link(self, content: str, old_text: str, new_text: str) -> str:
+        """Safely replace link text, avoiding code blocks.
+        
+        Args:
+            content: Content to process
+            old_text: Text to replace
+            new_text: Replacement text
+            
+        Returns:
+            Content with safe replacements
+        """
+        if old_text not in content:
+            return content
+            
+        # Find all occurrences of the old text
+        start = 0
+        while True:
+            pos = content.find(old_text, start)
+            if pos == -1:
+                break
+                
+            # Check if this position is in a code block using the new detector
+            if not is_range_in_code_block(content, pos, pos + len(old_text)):
+                # Safe to replace
+                content = content[:pos] + new_text + content[pos + len(old_text):]
+                start = pos + len(new_text)
+            else:
+                # Skip this occurrence
+                start = pos + len(old_text)
+                
+        return content 
