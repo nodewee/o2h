@@ -8,6 +8,9 @@ Convert **O**bsidian notes **to** **H**ugo/Zola posts - A modern, type-safe Pyth
 
 ### 🔗 Smart Link Processing
 - Convert internal links (notes, attachments, and heading/anchor) automatically
+- **HTML links support**: Process links in HTML attributes (`src`, `href`, `data-src`, etc.)
+  - Works with `<iframe>`, `<img>`, `<a>`, `<video>`, `<audio>` and other HTML tags
+  - Example: `<iframe src="attachments/file.html">` → `<iframe src="/attachments/file.html">`
 - Using slug format with intelligent slug generation from front-matter or file names
 - Alert for invalid internal links with detailed warnings
 - Convert video attachment (.mp4, .webm, .ogg) links to HTML video tags

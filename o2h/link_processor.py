@@ -22,6 +22,15 @@ IGNORED_FRONTMATTER_FIELDS = {
     "tags"
 }
 
+# HTML attributes that contain links
+HTML_LINK_ATTRIBUTES = {
+    "src",      # iframe, img, script, video, audio, etc.
+    "href",     # a, link, etc.
+    "data-src", # lazy loading
+    "poster",   # video poster
+    "action",   # form action
+}
+
 
 class LinkProcessor:
     """Processes links in Obsidian markdown content."""
@@ -65,7 +74,50 @@ class LinkProcessor:
             if not is_range_in_code_block(content, link_start, link_end):
                 self._process_link(original_uri, note_folder, note_filepath)
         
+        # Extract HTML attribute links
+        self._extract_html_links_from_content(content, note_folder, note_filepath)
+        
         return content
+    
+    def _extract_html_links_from_content(
+        self,
+        content: str,
+        note_folder: Path,
+        note_filepath: str
+    ) -> None:
+        """Extract links from HTML attributes in content.
+        
+        Args:
+            content: Content to search
+            note_folder: Directory containing the note
+            note_filepath: Path to the note file
+        """
+        # Pattern to match HTML tags with attributes
+        # This captures tag name and all attributes
+        html_tag_pattern = r'<([a-zA-Z][a-zA-Z0-9]*)\s+([^>]+)>'
+        
+        for tag_match in re.finditer(html_tag_pattern, content):
+            tag_start = tag_match.start()
+            tag_end = tag_match.end()
+            
+            # Check if this HTML tag is inside a code block
+            if is_range_in_code_block(content, tag_start, tag_end):
+                continue
+                
+            tag_name = tag_match.group(1).lower()
+            attributes_str = tag_match.group(2)
+            
+            # Extract individual attribute-value pairs
+            attr_pattern = r'(\w+)\s*=\s*["\']([^"\']*)["\']'
+            for attr_match in re.finditer(attr_pattern, attributes_str):
+                attr_name = attr_match.group(1).lower()
+                attr_value = attr_match.group(2)
+                
+                # Check if this attribute contains links
+                if attr_name in HTML_LINK_ATTRIBUTES and attr_value:
+                    # Decode HTML entities in the attribute value
+                    decoded_value = html.unescape(attr_value)
+                    self._process_link(decoded_value, note_folder, note_filepath)
     
     def extract_links_from_frontmatter(
         self,
@@ -128,6 +180,9 @@ class LinkProcessor:
                 if not is_range_in_code_block(value, link_start, link_end):
                     self._process_link(original_uri, note_folder, note_filepath)
             
+            # Extract HTML attribute links from metadata
+            self._extract_html_links_from_content(value, note_folder, note_filepath)
+            
             # Also check if the string itself is a file path (direct file reference)
             # But only if it's not inside a code block
             if self._is_potential_file_path(value) and not is_range_in_code_block(value, 0, len(value)):
@@ -180,8 +235,8 @@ class LinkProcessor:
                 "pdf", "md", "markdown", "txt", "doc", "docx",
                 # Media
                 "mp4", "webm", "ogg", "mp3", "wav", "flac",
-                # Other assets
-                "css", "js", "json", "xml", "yaml", "yml", "toml"
+                # Web files
+                "html", "htm", "css", "js", "json", "xml", "yaml", "yml", "toml"
             }
             if potential_ext in common_extensions:
                 # Further check: should not contain spaces (unless quoted) and should not be too long
@@ -469,6 +524,11 @@ class LinkProcessor:
                     dest_uri += f"#{link.anchor}"
                 modified_text = modified_text.replace(f"]({original_uri})", f"](/{dest_uri})")
         
+        # Replace HTML attribute links
+        modified_text = self._replace_html_attribute_links(
+            modified_text, note_files_map, content_dir, attachment_rel_path
+        )
+        
         # Replace direct file path references (not in markdown link format)
         for original_uri, link in self.inline_links.items():
             # Skip if this is in markdown format (already handled above)
@@ -568,6 +628,7 @@ class LinkProcessor:
         video_extensions = {".mp4", ".webm", ".ogg"}
         video_template = self._get_video_template()
         
+        # Replace markdown links
         for original_uri, link in self.inline_links.items():
             if link.link_type == LinkType.FILE:
                 dest_uri = attachment_rel_path + link.dest_filename
@@ -589,6 +650,11 @@ class LinkProcessor:
                 if link.anchor:
                     dest_uri += f"#{link.anchor}"
                 content = self._safe_replace_link(content, f"]({original_uri})", f"](/{dest_uri})")
+        
+        # Replace HTML attribute links
+        content = self._replace_html_attribute_links(
+            content, note_files_map, content_dir, attachment_rel_path
+        )
         
         return content
     
@@ -717,4 +783,103 @@ class LinkProcessor:
                 # Skip this occurrence
                 start = pos + len(old_text)
                 
-        return content 
+        return content
+    
+    def _replace_html_attribute_links(
+        self,
+        content: str,
+        note_files_map: Dict[Path, Path],
+        content_dir: Path,
+        attachment_rel_path: str
+    ) -> str:
+        """Replace links in HTML attributes.
+        
+        Args:
+            content: Content to process
+            note_files_map: Mapping of note paths to post paths
+            content_dir: Content directory path
+            attachment_rel_path: Attachment relative path
+            
+        Returns:
+            Content with HTML attribute links replaced
+        """
+        # Pattern to match HTML tags with attributes
+        html_tag_pattern = r'<([a-zA-Z][a-zA-Z0-9]*)\s+([^>]+)>'
+        
+        def replace_tag(match):
+            tag_start = match.start()
+            tag_end = match.end()
+            
+            # Check if this HTML tag is inside a code block
+            if is_range_in_code_block(content, tag_start, tag_end):
+                return match.group(0)  # Return unchanged if in code block
+                
+            tag_name = match.group(1)
+            attributes_str = match.group(2)
+            
+            # Replace attribute values
+            modified_attributes = self._replace_attribute_links(
+                attributes_str, note_files_map, content_dir, attachment_rel_path
+            )
+            
+            return f"<{tag_name} {modified_attributes}>"
+        
+        return re.sub(html_tag_pattern, replace_tag, content)
+    
+    def _replace_attribute_links(
+        self,
+        attributes_str: str,
+        note_files_map: Dict[Path, Path],
+        content_dir: Path,
+        attachment_rel_path: str
+    ) -> str:
+        """Replace links in HTML attribute string.
+        
+        Args:
+            attributes_str: HTML attributes string
+            note_files_map: Mapping of note paths to post paths
+            content_dir: Content directory path
+            attachment_rel_path: Attachment relative path
+            
+        Returns:
+            Attributes string with links replaced
+        """
+        # Pattern to match attribute="value" pairs
+        attr_pattern = r'(\w+)\s*=\s*(["\'])([^"\']*)\2'
+        
+        def replace_attr(match):
+            attr_name = match.group(1).lower()
+            quote_char = match.group(2)
+            attr_value = match.group(3)
+            
+            # Only process link attributes
+            if attr_name not in HTML_LINK_ATTRIBUTES:
+                return match.group(0)
+            
+            # Decode HTML entities
+            decoded_value = html.unescape(attr_value)
+            
+            # Check if this value corresponds to a link we need to replace
+            if decoded_value in self.inline_links:
+                link = self.inline_links[decoded_value]
+                
+                if link.link_type == LinkType.FILE:
+                    new_value = attachment_rel_path + link.dest_filename
+                    if link.anchor:
+                        new_value += f"#{link.anchor}"
+                elif link.link_type == LinkType.NOTE:
+                    new_value = "/" + self._get_note_uri(link, note_files_map, content_dir)
+                    if link.anchor:
+                        new_value += f"#{link.anchor}"
+                elif link.link_type == LinkType.ANCHOR:
+                    new_value = f"#{link.anchor}"
+                else:
+                    new_value = decoded_value
+                
+                # Encode back to HTML if needed
+                encoded_value = html.escape(new_value, quote=True)
+                return f"{match.group(1)}={quote_char}{encoded_value}{quote_char}"
+            
+            return match.group(0)
+        
+        return re.sub(attr_pattern, replace_attr, attributes_str) 

@@ -8,6 +8,9 @@
 
 - 链接
   - 自动转换内部链接(笔记、附件、标题/锚)
+  - **HTML链接支持**: 处理HTML属性中的链接（`src`, `href`, `data-src` 等）
+    - 支持 `<iframe>`, `<img>`, `<a>`, `<video>`, `<audio>` 等HTML标签
+    - 示例: `<iframe src="attachments/file.html">` → `<iframe src="/attachments/file.html">`
   - 使用slug格式，自动从 front-matter 中获取或从文件名转换
   - 对无效的内部链接发出警告
   - 自动将视频附件（.mp4, .webm, .ogg）链接转换为HTML video tag
