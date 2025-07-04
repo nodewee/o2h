@@ -38,6 +38,12 @@ Examples:
   # Convert specific folders with custom mappings
   o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
   
+  # Use custom attachment path (absolute path)
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
+  
+  # Use custom attachment path (relative to current directory)
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
+  
   # Disable internal linking feature
   o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
 """
@@ -80,6 +86,20 @@ Examples:
         type=str,
         default="attachments",
         metavar="NAME",
+    )
+
+    parser.add_argument(
+        "--attachment-target-path",
+        help="Target path for attachments (absolute or relative path). If specified, --attachment-folder is ignored.",
+        type=str,
+        metavar="PATH",
+    )
+
+    parser.add_argument(
+        "--attachment-host",
+        help="Host domain for attachments when using --attachment-target-path. Format: 'example.com' or 'cdn.example.com' (https:// will be auto-added)",
+        type=str,
+        metavar="HOST",
     )
 
     parser.add_argument(
@@ -201,10 +221,29 @@ def create_config_from_args(args: argparse.Namespace) -> ConversionConfig:
     # Convert frontmatter format string to enum
     frontmatter_format = FrontmatterFormat(args.frontmatter_format)
     
+    # Validate attachment parameters
+    if args.attachment_target_path and not args.attachment_host:
+        print("Error: --attachment-host is required when using --attachment-target-path", file=sys.stderr)
+        sys.exit(1)
+    
+    # Validate attachment host format
+    if args.attachment_host:
+        if not args.attachment_target_path:
+            print("Error: --attachment-host can only be used with --attachment-target-path", file=sys.stderr)
+            sys.exit(1)
+        
+        # Basic domain validation
+        host = args.attachment_host.strip()
+        if not host or host.startswith("http") or "/" in host:
+            print("Error: --attachment-host must be a domain name (e.g., 'example.com' or 'cdn.example.com')", file=sys.stderr)
+            sys.exit(1)
+    
     return ConversionConfig(
         obsidian_vault_path=args.obsidian_vault.resolve(),
         hugo_project_path=args.target_project.resolve(),
         attachment_folder_name=args.attachment_folder,
+        attachment_target_path=Path(args.attachment_target_path) if args.attachment_target_path else None,
+        attachment_host=args.attachment_host,
         folder_name_map=folder_mappings,
         clean_dest_dirs=args.clean_dest,
         md5_attachment=args.md5_attachment,

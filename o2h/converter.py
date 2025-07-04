@@ -182,7 +182,7 @@ class ObsidianToHugoConverter:
                 self.internal_linker.build_link_registry(note_files_map, content_dir)
             
             # Generate Hugo/Zola posts
-            self._generate_posts(note_files_map)
+            self._generate_posts(note_files_map, folder_map)
             
             # Update result with internal linking statistics
             if self.internal_linker:
@@ -362,9 +362,17 @@ class ObsidianToHugoConverter:
         dirs_to_clean = list(folder_map.values())
         
         # Add attachment directory
-        attachment_dir = self.config.hugo_project_path / "static"
-        for part in self.config.attachment_folder_name.split("/"):
-            attachment_dir = attachment_dir / part
+        if self.config.attachment_target_path:
+            # Use custom attachment path
+            attachment_dir = self.config.attachment_target_path
+            if not attachment_dir.is_absolute():
+                attachment_dir = attachment_dir.resolve()
+        else:
+            # Use original logic with static folder
+            attachment_dir = self.config.hugo_project_path / "static"
+            for part in self.config.attachment_folder_name.split("/"):
+                attachment_dir = attachment_dir / part
+                
         dirs_to_clean.append(attachment_dir)
         
         for dir_path in dirs_to_clean:
@@ -382,9 +390,19 @@ class ObsidianToHugoConverter:
         """Copy attachment files to destination."""
         logger.info("Copying attachments...")
         
-        dest_dir = self.config.hugo_project_path / "static"
-        for part in self.config.attachment_folder_name.split("/"):
-            dest_dir = dest_dir / part
+        # Determine destination directory
+        if self.config.attachment_target_path:
+            # Use custom attachment path
+            dest_dir = self.config.attachment_target_path
+            if not dest_dir.is_absolute():
+                # If relative path, make it relative to current working directory
+                dest_dir = dest_dir.resolve()
+        else:
+            # Use original logic with static folder
+            dest_dir = self.config.hugo_project_path / "static"
+            for part in self.config.attachment_folder_name.split("/"):
+                dest_dir = dest_dir / part
+                
         dest_dir.mkdir(parents=True, exist_ok=True)
         
         for link in self.link_processor.inline_links.values():
@@ -416,14 +434,15 @@ class ObsidianToHugoConverter:
                 logger.error(error_msg)
                 self.result.errors.append(error_msg)
 
-    def _generate_posts(self, note_files_map: Dict[Path, Path]) -> None:
+    def _generate_posts(self, note_files_map: Dict[Path, Path], folder_map: Dict[Path, Path]) -> None:
         """Generate Hugo/Zola posts from Obsidian notes.
         
         Args:
             note_files_map: Mapping of note paths to post paths
+            folder_map: Mapping of source to destination folders
         """
         # Check for linked notes that aren't being converted
-        self._validate_note_links(note_files_map)
+        self._validate_note_links(note_files_map, folder_map)
         
         for note_path, post_path in note_files_map.items():
             if not post_path:  # Skip notes that shouldn't be converted
@@ -438,18 +457,47 @@ class ObsidianToHugoConverter:
                 logger.error(error_msg)
                 self.result.errors.append(error_msg)
 
-    def _validate_note_links(self, note_files_map: Dict[Path, Path]) -> None:
-        """Validate that linked notes exist in the conversion map.
+    def _validate_note_links(self, note_files_map: Dict[Path, Path], folder_map: Dict[Path, Path]) -> None:
+        """Validate that linked notes exist in the conversion map, providing detailed warnings.
         
         Args:
             note_files_map: Mapping of note paths to post paths
+            folder_map: Mapping of source to destination folders
         """
         for link in self.link_processor.inline_links.values():
             if link.link_type == LinkType.NOTE and link.source_path:
                 if link.source_path not in note_files_map:
-                    warning_msg = f"Linked note not being converted: {link.original_uri}"
+                    reason = ""
+                    note_parent_dir = link.source_path.parent
+
+                    # Check if the note was explicitly excluded
+                    if self._should_exclude_note(link.source_path):
+                        reason = f"its parent directory ('{note_parent_dir.name}') is in the excluded list (e.g., templates)."
+                    
+                    # Check if its folder wasn't included when using --folders
+                    elif self.config.folder_name_map:
+                        is_in_scope = note_parent_dir in folder_map
+                        is_in_subfolder_of_scope = False
+                        
+                        if not is_in_scope:
+                            for src_folder_path in folder_map.keys():
+                                if note_parent_dir.is_relative_to(src_folder_path):
+                                    is_in_subfolder_of_scope = True
+                                    break
+                        
+                        rel_path = note_parent_dir.relative_to(self.config.obsidian_vault_path)
+                        if is_in_subfolder_of_scope:
+                            reason = f"its parent directory ('{rel_path}') is a sub-directory of a folder specified in --folders, but sub-directories are not converted recursively with this option. Please specify '{rel_path}' directly in --folders if you want to convert it."
+                        else:
+                            reason = f"its parent directory ('{rel_path}') was not included in the conversion scope specified by --folders."
+                    
+                    if not reason:
+                        reason = "it was not found in the set of notes to be converted. This may be due to a file system issue or a bug."
+
+                    warning_msg = f"Linked note '{link.original_uri}' will not be converted. Reason: {reason}"
                     logger.warning(warning_msg)
                     self.result.warnings.append(warning_msg)
+                    
                     # Add placeholder to avoid errors during link replacement
                     note_files_map[link.source_path] = None
 
@@ -479,6 +527,7 @@ class ObsidianToHugoConverter:
             note_files_map,
             self.config.hugo_project_path,
             self.config.attachment_folder_name,
+            self.config,
         )
         
         # Replace links in frontmatter metadata
@@ -487,6 +536,7 @@ class ObsidianToHugoConverter:
             note_files_map,
             self.config.hugo_project_path,
             self.config.attachment_folder_name,
+            self.config,
         )
         
         # Apply internal links if enabled

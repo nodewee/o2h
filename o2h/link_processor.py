@@ -373,12 +373,58 @@ class LinkProcessor:
         decoded = urllib.parse.unquote(anchor).replace(" ", "-")
         return urllib.parse.quote(decoded)
     
+    def _get_attachment_url_path(
+        self, 
+        config, 
+        dest_filename: str
+    ) -> str:
+        """Get URL path for attachment based on configuration.
+        
+        Args:
+            config: Conversion configuration
+            dest_filename: Destination filename
+            
+        Returns:
+            URL path for the attachment
+        """
+        if config.attachment_target_path:
+            # When using custom attachment path with host, generate full URL
+            if config.attachment_host:
+                # Generate full URL with https protocol
+                host = config.attachment_host.strip()
+                return f"https://{host}/{dest_filename}"
+            else:
+                # Fallback to relative path logic (for backward compatibility)
+                target_path = config.attachment_target_path
+                if not target_path.is_absolute():
+                    target_path = target_path.resolve()
+                
+                hugo_project_path = config.hugo_project_path.resolve()
+                
+                # Check if attachment path is under Hugo project
+                try:
+                    rel_path = target_path.relative_to(hugo_project_path)
+                    # If it's under static folder, remove the static prefix
+                    if rel_path.parts[0] == "static":
+                        url_path = "/" + "/".join(rel_path.parts[1:])
+                    else:
+                        url_path = "/" + str(rel_path)
+                except ValueError:
+                    # Path is not under Hugo project, use a generic path
+                    url_path = "/attachments"
+                
+                return f"{url_path}/{dest_filename}"
+        else:
+            # Use original logic
+            return f"/{config.attachment_folder_name.strip('/')}/{dest_filename}"
+    
     def replace_links_in_frontmatter(
         self,
         metadata: Dict[str, Any],
         note_files_map: Dict[Path, Path],
         hugo_project_path: Path,
         attachment_folder_name: str,
+        config=None,
     ) -> Dict[str, Any]:
         """Replace links in frontmatter metadata with final URLs.
         
@@ -386,7 +432,8 @@ class LinkProcessor:
             metadata: Original frontmatter metadata
             note_files_map: Mapping of note paths to post paths
             hugo_project_path: Hugo project root path
-            attachment_folder_name: Name of attachment folder
+            attachment_folder_name: Name of attachment folder (deprecated when config is provided)
+            config: Conversion configuration (optional, for backward compatibility)
             
         Returns:
             Metadata with replaced links
@@ -395,7 +442,14 @@ class LinkProcessor:
             return metadata
             
         content_dir = hugo_project_path / "content"
-        attachment_rel_path = f"/{attachment_folder_name.strip('/')}/"
+        
+        # Determine attachment URL path
+        if config:
+            # Use new method with config
+            attachment_rel_path = ""  # Will be computed per link
+        else:
+            # Use old method for backward compatibility
+            attachment_rel_path = f"/{attachment_folder_name.strip('/')}/"
         
         # Create a deep copy of metadata to avoid modifying the original
         import copy
@@ -406,7 +460,8 @@ class LinkProcessor:
             processed_metadata,
             note_files_map,
             content_dir,
-            attachment_rel_path
+            attachment_rel_path,
+            config
         )
         
         return processed_metadata
@@ -416,7 +471,8 @@ class LinkProcessor:
         metadata_dict: Dict[str, Any],
         note_files_map: Dict[Path, Path],
         content_dir: Path,
-        attachment_rel_path: str
+        attachment_rel_path: str,
+        config=None
     ) -> None:
         """Replace links in metadata dictionary, skipping ignored fields.
         
@@ -425,6 +481,7 @@ class LinkProcessor:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path
             attachment_rel_path: Attachment relative path
+            config: Conversion configuration (optional, for backward compatibility)
         """
         for key, value in metadata_dict.items():
             # Skip ignored fields
@@ -433,11 +490,11 @@ class LinkProcessor:
                 
             if isinstance(value, str):
                 metadata_dict[key] = self._replace_links_in_string(
-                    value, note_files_map, content_dir, attachment_rel_path
+                    value, note_files_map, content_dir, attachment_rel_path, config
                 )
             else:
                 self._replace_links_in_metadata_value(
-                    value, note_files_map, content_dir, attachment_rel_path
+                    value, note_files_map, content_dir, attachment_rel_path, config
                 )
     
     def _replace_links_in_metadata_value(
@@ -445,7 +502,8 @@ class LinkProcessor:
         value: Any,
         note_files_map: Dict[Path, Path],
         content_dir: Path,
-        attachment_rel_path: str
+        attachment_rel_path: str,
+        config=None
     ) -> None:
         """Recursively replace links in metadata values.
         
@@ -454,6 +512,7 @@ class LinkProcessor:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path
             attachment_rel_path: Attachment relative path
+            config: Conversion configuration (optional, for backward compatibility)
         """
         if isinstance(value, str):
             # This is a string, but we need to modify the parent container
@@ -464,22 +523,22 @@ class LinkProcessor:
             for i, item in enumerate(value):
                 if isinstance(item, str):
                     value[i] = self._replace_links_in_string(
-                        item, note_files_map, content_dir, attachment_rel_path
+                        item, note_files_map, content_dir, attachment_rel_path, config
                     )
                 else:
                     self._replace_links_in_metadata_value(
-                        item, note_files_map, content_dir, attachment_rel_path
+                        item, note_files_map, content_dir, attachment_rel_path, config
                     )
         elif isinstance(value, dict):
             # Process nested dictionary values (no field filtering for nested dicts)
             for key, item_value in value.items():
                 if isinstance(item_value, str):
                     value[key] = self._replace_links_in_string(
-                        item_value, note_files_map, content_dir, attachment_rel_path
+                        item_value, note_files_map, content_dir, attachment_rel_path, config
                     )
                 else:
                     self._replace_links_in_metadata_value(
-                        item_value, note_files_map, content_dir, attachment_rel_path
+                        item_value, note_files_map, content_dir, attachment_rel_path, config
                     )
     
     def _replace_links_in_string(
@@ -487,7 +546,8 @@ class LinkProcessor:
         text: str,
         note_files_map: Dict[Path, Path],
         content_dir: Path,
-        attachment_rel_path: str
+        attachment_rel_path: str,
+        config=None
     ) -> str:
         """Replace links in a string value.
         
@@ -496,6 +556,7 @@ class LinkProcessor:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path
             attachment_rel_path: Attachment relative path
+            config: Conversion configuration (optional, for backward compatibility)
             
         Returns:
             String with replaced links
@@ -509,7 +570,10 @@ class LinkProcessor:
                 continue
                 
             if link.link_type == LinkType.FILE:
-                dest_uri = attachment_rel_path + link.dest_filename
+                if config:
+                    dest_uri = self._get_attachment_url_path(config, link.dest_filename)
+                else:
+                    dest_uri = attachment_rel_path + link.dest_filename
                 if link.anchor:
                     dest_uri += f"#{link.anchor}"
                 modified_text = modified_text.replace(f"]({original_uri})", f"]({dest_uri})")
@@ -526,7 +590,7 @@ class LinkProcessor:
         
         # Replace HTML attribute links
         modified_text = self._replace_html_attribute_links(
-            modified_text, note_files_map, content_dir, attachment_rel_path
+            modified_text, note_files_map, content_dir, attachment_rel_path, config
         )
         
         # Replace direct file path references (not in markdown link format)
@@ -539,7 +603,10 @@ class LinkProcessor:
             if original_uri in modified_text:
                 if link.link_type == LinkType.FILE:
                     # For files, replace with the attachment path
-                    dest_uri = attachment_rel_path + link.dest_filename
+                    if config:
+                        dest_uri = self._get_attachment_url_path(config, link.dest_filename)
+                    else:
+                        dest_uri = attachment_rel_path + link.dest_filename
                     # Remove leading slash if present since frontmatter values usually don't start with /
                     if dest_uri.startswith("/"):
                         dest_uri = dest_uri[1:]
@@ -607,6 +674,7 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path],
         hugo_project_path: Path,
         attachment_folder_name: str,
+        config=None,
     ) -> str:
         """Replace links in content with final URLs.
         
@@ -614,7 +682,8 @@ class LinkProcessor:
             content: Original content
             note_files_map: Mapping of note paths to post paths
             hugo_project_path: Hugo project root path
-            attachment_folder_name: Name of attachment folder
+            attachment_folder_name: Name of attachment folder (deprecated when config is provided)
+            config: Conversion configuration (optional, for backward compatibility)
             
         Returns:
             Content with replaced links
@@ -623,7 +692,12 @@ class LinkProcessor:
         content = re.sub(r"\[\[(.*?)\]\]", r"[\1](\1)", content)
         
         content_dir = hugo_project_path / "content"
-        attachment_rel_path = f"/{attachment_folder_name.strip('/')}/"
+        
+        # Determine attachment URL path
+        if config:
+            attachment_rel_path = ""  # Will be computed per link
+        else:
+            attachment_rel_path = f"/{attachment_folder_name.strip('/')}/"
         
         video_extensions = {".mp4", ".webm", ".ogg"}
         video_template = self._get_video_template()
@@ -631,7 +705,10 @@ class LinkProcessor:
         # Replace markdown links
         for original_uri, link in self.inline_links.items():
             if link.link_type == LinkType.FILE:
-                dest_uri = attachment_rel_path + link.dest_filename
+                if config:
+                    dest_uri = self._get_attachment_url_path(config, link.dest_filename)
+                else:
+                    dest_uri = attachment_rel_path + link.dest_filename
                 
                 # Handle video files specially  
                 if link.source_path and link.source_path.suffix.lower() in video_extensions:
@@ -653,7 +730,7 @@ class LinkProcessor:
         
         # Replace HTML attribute links
         content = self._replace_html_attribute_links(
-            content, note_files_map, content_dir, attachment_rel_path
+            content, note_files_map, content_dir, attachment_rel_path, config
         )
         
         return content
@@ -790,7 +867,8 @@ class LinkProcessor:
         content: str,
         note_files_map: Dict[Path, Path],
         content_dir: Path,
-        attachment_rel_path: str
+        attachment_rel_path: str,
+        config=None
     ) -> str:
         """Replace links in HTML attributes.
         
@@ -799,6 +877,7 @@ class LinkProcessor:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path
             attachment_rel_path: Attachment relative path
+            config: Conversion configuration (optional, for backward compatibility)
             
         Returns:
             Content with HTML attribute links replaced
@@ -819,7 +898,7 @@ class LinkProcessor:
             
             # Replace attribute values
             modified_attributes = self._replace_attribute_links(
-                attributes_str, note_files_map, content_dir, attachment_rel_path
+                attributes_str, note_files_map, content_dir, attachment_rel_path, config
             )
             
             return f"<{tag_name} {modified_attributes}>"
@@ -831,7 +910,8 @@ class LinkProcessor:
         attributes_str: str,
         note_files_map: Dict[Path, Path],
         content_dir: Path,
-        attachment_rel_path: str
+        attachment_rel_path: str,
+        config=None
     ) -> str:
         """Replace links in HTML attribute string.
         
@@ -840,6 +920,7 @@ class LinkProcessor:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path
             attachment_rel_path: Attachment relative path
+            config: Conversion configuration (optional, for backward compatibility)
             
         Returns:
             Attributes string with links replaced
@@ -864,7 +945,10 @@ class LinkProcessor:
                 link = self.inline_links[decoded_value]
                 
                 if link.link_type == LinkType.FILE:
-                    new_value = attachment_rel_path + link.dest_filename
+                    if config:
+                        new_value = self._get_attachment_url_path(config, link.dest_filename)
+                    else:
+                        new_value = attachment_rel_path + link.dest_filename
                     if link.anchor:
                         new_value += f"#{link.anchor}"
                 elif link.link_type == LinkType.NOTE:

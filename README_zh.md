@@ -28,6 +28,18 @@
   - 可指定一个或多个文件夹
   - 可选择是否清空目标文件夹（保留 "_index.*" 文件）
 
+- 附件管理
+  - **默认行为**: 将附件保存到目标项目的 `static/attachments/` 文件夹中
+  - **自定义附件路径**: 使用 `--attachment-target-path` 参数指定任意自定义路径
+    - 支持绝对路径（如 `/var/www/static/images`）和相对路径（如 `media/uploads`）
+    - 指定该参数时，`--attachment-folder` 参数将被忽略
+    - 附件与目标项目结构解耦
+    - **必需**: 使用 `--attachment-target-path` 时必须指定 `--attachment-host`
+  - **附件主机**: 使用 `--attachment-host` 参数指定附件的完整URL域名
+    - 格式: `example.com` 或 `cdn.example.com`（自动添加 https:// 协议）
+    - 生成完整URL如 `https://cdn.example.com/image.jpg`
+    - 仅与 `--attachment-target-path` 配合使用
+
 - 发布的日期/时间
   - 首先从 front-matter 中查找指定值，如果没有找到，
   - 使用笔记文件(.md)的创建时间和最后修改时间
@@ -67,6 +79,12 @@ python . "Obsidian笔记库路径" "Zola项目路径" --folders blogs --frontmat
 
 # 转换指定文件夹并自定义映射关系
 python . "Obsidian笔记库路径" "Hugo项目路径" --folders "blogs>posts notes>articles"
+
+# 使用自定义附件路径配合CDN主机（绝对路径）
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
+
+# 使用自定义附件路径配合CDN主机（相对路径）
+python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
 
 # 禁用文章内链功能
 python . "Obsidian笔记库路径" "Hugo项目路径" --folders blogs --disable-internal-linking

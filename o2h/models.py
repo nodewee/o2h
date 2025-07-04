@@ -26,6 +26,8 @@ class ConversionConfig:
     obsidian_vault_path: Path
     hugo_project_path: Path
     attachment_folder_name: str = "attachments"
+    attachment_target_path: Optional[Path] = None  # New field for custom attachment path
+    attachment_host: Optional[str] = None  # New field for attachment host domain
     folder_name_map: Dict[str, str] = field(default_factory=dict)
     clean_dest_dirs: bool = False
     md5_attachment: bool = False

@@ -30,6 +30,18 @@ Convert **O**bsidian notes **to** **H**ugo/Zola posts - A modern, type-safe Pyth
 - Option to clean target folders before conversion (preserves "_index.*" files)
 - Intelligent folder structure preservation and conversion
 
+### 📎 Flexible Attachment Management
+- **Default behavior**: Save attachments to `static/attachments/` folder within the target project
+- **Custom attachment path**: Use `--attachment-target-path` to specify any custom path for attachments
+  - Supports both absolute paths (e.g., `/var/www/static/images`) and relative paths (e.g., `media/uploads`)
+  - When specified, `--attachment-folder` parameter is ignored
+  - Attachments are decoupled from the target project structure
+  - **Required**: Must specify `--attachment-host` when using `--attachment-target-path`
+- **Attachment host**: Use `--attachment-host` to specify the domain for complete URLs
+  - Format: `example.com` or `cdn.example.com` (https:// protocol is auto-added)
+  - Generates full URLs like `https://cdn.example.com/image.jpg`
+  - Only used with `--attachment-target-path`
+
 ### 📅 Smart Date/Time Handling
 - Prioritized metadata extraction: frontmatter → file timestamps
 - Support for multiple date field formats (date, created, lastmod, updated, modified)
@@ -81,6 +93,12 @@ o2h "/path/to/obsidian/vault" "/path/to/zola/project" --folders blogs --frontmat
 # Convert specific folders with custom mappings
 o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
 
+# Use custom attachment path with CDN host (absolute path)
+o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
+
+# Use custom attachment path with CDN host (relative path)
+o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
+
 # Disable internal linking feature
 o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
 
@@ -88,6 +106,8 @@ o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-
 o2h "/path/to/vault" "/path/to/project" \
     --folders "blogs>posts" \
     --attachment-folder "media/images" \
+    --attachment-target-path "/var/www/cdn/attachments" \
+    --attachment-host "cdn.example.com" \
     --md5-attachment \
     --clean-dest \
     --frontmatter-format toml \
@@ -202,6 +222,8 @@ This article introduces machine learning concepts...
 |--------|-------------|---------|
 | `--folders` | Folder mappings (`source>target`) | All folders |
 | `--attachment-folder` | Attachment destination folder | `attachments` |
+| `--attachment-target-path` | Custom attachment path (absolute or relative) | None |
+| `--attachment-host` | Host domain for attachments (e.g., `cdn.example.com`) | None |
 | `--md5-attachment` | Use MD5 hash for attachment names | `false` |
 | `--clean-dest` | Clean target directories first | `false` |
 | `--frontmatter-format` | Frontmatter format (`yaml`/`toml`) | `yaml` |
