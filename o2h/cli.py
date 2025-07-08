@@ -3,12 +3,49 @@
 import argparse
 import sys
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import __title__, __version__
 from .converter import ObsidianToHugoConverter
 from .logger import setup_logger
 from .models import ConversionConfig, FrontmatterFormat
+
+
+class FolderMappingAction(argparse.Action):
+    """Custom action for handling --folder arguments."""
+    
+    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+        # Accept 1 or 2 arguments
+        if nargs is None:
+            nargs = '+'
+        super().__init__(option_strings, dest, nargs=nargs, **kwargs)
+    
+    def __call__(self, parser, namespace, values, option_string=None):
+        if not hasattr(namespace, self.dest) or getattr(namespace, self.dest) is None:
+            setattr(namespace, self.dest, [])
+        
+        # Validate number of arguments
+        if len(values) == 1:
+            # Single argument: source directory, target is same as source
+            source_dir = values[0].strip()
+            target_dir = source_dir
+        elif len(values) == 2:
+            # Two arguments: source and target directories
+            source_dir = values[0].strip()
+            target_dir = values[1].strip()
+        else:
+            raise argparse.ArgumentTypeError(
+                f"--folder expects 1 or 2 arguments, got {len(values)}: {values}"
+            )
+        
+        # Validate arguments
+        if not source_dir:
+            raise argparse.ArgumentTypeError("Source directory name cannot be empty")
+        if not target_dir:
+            raise argparse.ArgumentTypeError("Target directory name cannot be empty")
+        
+        # Store as tuple
+        getattr(namespace, self.dest).append((source_dir, target_dir))
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -30,22 +67,28 @@ Features:
 
 Examples:
   # Convert for Hugo (YAML frontmatter - default)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs
 
   # Convert for Zola (TOML frontmatter)
-  o2h "/path/to/obsidian/vault" "/path/to/zola/project" --folders blogs --frontmatter-format toml
+  o2h "/path/to/obsidian/vault" "/path/to/zola/project" --folder blogs --frontmatter-format toml
 
-  # Convert specific folders with custom mappings
+  # Convert specific folders with custom mappings (new recommended syntax)
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" \\
+      --folder "blogs" "posts" \\
+      --folder "notes" "articles" \\
+      --folder "tutorials"
+
+  # Legacy syntax (still supported but deprecated)
   o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
   
   # Use custom attachment path (absolute path)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
   
   # Use custom attachment path (relative to current directory)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
   
   # Disable internal linking feature
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
+  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --disable-internal-linking
 """
 
     parser = argparse.ArgumentParser(
@@ -68,13 +111,31 @@ Examples:
         type=Path,
     )
 
-    # Optional arguments
-    parser.add_argument(
+    # Folder mapping arguments (new and legacy)
+    folder_group = parser.add_mutually_exclusive_group()
+    
+    folder_group.add_argument(
+        "--folder",
+        action=FolderMappingAction,
+        dest="folder_mappings",
+        help="""Specify a folder to convert with optional target mapping.
+        Can be used multiple times. Usage:
+          --folder "source-dir"                    (target dir same as source)
+          --folder "source-dir" "target-dir"      (custom target dir)
+        Examples:
+          --folder "blogs" "posts"
+          --folder "notes" "articles" 
+          --folder "tutorials"
+        """,
+        metavar=("SOURCE", "TARGET"),
+    )
+    
+    folder_group.add_argument(
         "--folders",
         type=str,
-        help="""Specify folders to convert with optional target mappings.
+        help="""[DEPRECATED] Specify folders to convert with optional target mappings.
         Format: "source1>target1 source2>target2"
-        If no target specified, uses source name.
+        Use --folder instead for better syntax.
         Example: --folders "blogs>posts notes>articles"
         """,
         metavar="MAPPING",
@@ -153,7 +214,7 @@ Examples:
 
 
 def parse_folder_mappings(folders_str: Optional[str]) -> Dict[str, str]:
-    """Parse folder mapping string into dictionary.
+    """Parse folder mapping string into dictionary (legacy function).
     
     Args:
         folders_str: Folder mapping string (e.g., "blogs>posts notes>articles")
@@ -178,6 +239,49 @@ def parse_folder_mappings(folders_str: Optional[str]) -> Dict[str, str]:
             mappings[item] = item
 
     return mappings
+
+
+def parse_folder_mapping_list(folder_list: Optional[List[Tuple[str, str]]]) -> Dict[str, str]:
+    """Parse folder mapping list into dictionary.
+    
+    Args:
+        folder_list: List of (source, target) tuples
+        
+    Returns:
+        Dictionary mapping source folders to target folders
+    """
+    if not folder_list:
+        return {}
+    
+    mappings = {}
+    for source, target in folder_list:
+        if source in mappings:
+            print(f"Warning: Duplicate source folder '{source}', using latest mapping: {source} -> {target}", file=sys.stderr)
+        mappings[source] = target
+    
+    return mappings
+
+
+def get_folder_mappings_from_args(args: argparse.Namespace) -> Dict[str, str]:
+    """Extract folder mappings from command line arguments.
+    
+    Args:
+        args: Parsed command line arguments
+        
+    Returns:
+        Dictionary mapping source folders to target folders
+    """
+    # Check if new --folder arguments were used
+    if hasattr(args, 'folder_mappings') and args.folder_mappings:
+        return parse_folder_mapping_list(args.folder_mappings)
+    
+    # Fall back to legacy --folders argument
+    if args.folders:
+        print("Warning: --folders is deprecated. Use --folder instead for better syntax.", file=sys.stderr)
+        return parse_folder_mappings(args.folders)
+    
+    # No folder mappings specified
+    return {}
 
 
 def validate_paths(obsidian_vault: Path, target_project: Path) -> None:
@@ -216,7 +320,7 @@ def create_config_from_args(args: argparse.Namespace) -> ConversionConfig:
     Returns:
         ConversionConfig instance
     """
-    folder_mappings = parse_folder_mappings(args.folders)
+    folder_mappings = get_folder_mappings_from_args(args)
     
     # Convert frontmatter format string to enum
     frontmatter_format = FrontmatterFormat(args.frontmatter_format)
