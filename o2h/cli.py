@@ -32,7 +32,8 @@ class FolderMappingAction(argparse.Action):
         elif len(values) == 2:
             # Two arguments: source and target directories
             source_dir = values[0].strip()
-            target_dir = values[1].strip()
+            target_dir = values[1].strip() if values[1].strip() else ""
+            # Allow empty target_dir, will use default content path
         else:
             raise argparse.ArgumentTypeError(
                 f"--folder expects 1 or 2 arguments, got {len(values)}: {values}"
@@ -41,8 +42,7 @@ class FolderMappingAction(argparse.Action):
         # Validate arguments
         if not source_dir:
             raise argparse.ArgumentTypeError("Source directory name cannot be empty")
-        if not target_dir:
-            raise argparse.ArgumentTypeError("Target directory name cannot be empty")
+        # Allow empty target_dir, will use default content path later
         
         # Store as tuple
         getattr(namespace, self.dest).append((source_dir, target_dir))
@@ -408,4 +408,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main() 
+    main()

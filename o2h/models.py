@@ -193,6 +193,20 @@ class NoteMetadata:
             data["link_words"] = self.link_words
             
         return data
+        
+    @staticmethod
+    def extract_link_words(metadata: Dict[str, Any]) -> List[str]:
+        """Extract link_words from metadata, supporting both top-level and extra fields."""
+        link_words = metadata.get("link_words", [])
+        if not link_words:
+            link_words = metadata.get("extra", {}).get("link_words", [])
+        
+        # Ensure link_words is a list of strings
+        if isinstance(link_words, str):
+            return [link_words.strip()]
+        elif isinstance(link_words, list):
+            return [word.strip() for word in link_words if isinstance(word, str)]
+        return []
 
 
 @dataclass
@@ -208,4 +222,4 @@ class ConversionResult:
     @property
     def success(self) -> bool:
         """Check if conversion was successful."""
-        return len(self.errors) == 0 
+        return len(self.errors) == 0

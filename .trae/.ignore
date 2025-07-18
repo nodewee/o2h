@@ -1,0 +1,48 @@
+# 本项目相关
+
+# IDE
+.vscode
+.vscode/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# cursor 相关
+.cursor/
+.cursorignore
+.cursorindexingignore
+.cursorrules
+
+# git
+.git/
+
+# golang
+go.sum
+
+# Python 相关
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+
+# Node.js / Web 相关
+node_modules
+node_modules/
+package-lock.json
+
+# 临时 / 日志
+logs
+logs/
+*.log
+temp
+temp/
+tmp/
+*.tmp
+
+# 构建相关
+dist
+dist/
+target
+target/

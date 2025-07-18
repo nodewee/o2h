@@ -47,7 +47,7 @@ class InternalLinker:
                 note = frontmatter.loads(note_content)
                 
                 # Extract link_words from frontmatter
-                link_words = note.metadata.get("link_words", [])
+                link_words = NoteMetadata.extract_link_words(note.metadata)
                 if not link_words:
                     continue
                     
@@ -305,4 +305,4 @@ class InternalLinker:
             "total_link_words": len(self.registry.link_words),
             "total_conflicts": len(self.registry.conflicts),
             "total_links_added": self.total_links_added
-        } 
+        }

@@ -153,6 +153,7 @@ class ObsidianToHugoConverter:
         if config.enable_internal_linking:
             self.internal_linker = InternalLinker(config.internal_link_max_per_article)
         self.result = ConversionResult()
+        self.note_metadata_map: Dict[Path, NoteMetadata] = {}  # New metadata storage
 
     def convert(self) -> ConversionResult:
         """Perform the complete conversion process.
@@ -217,8 +218,19 @@ class ObsidianToHugoConverter:
             # Use specified folder mappings
             for src_folder, dest_folder in self.config.folder_name_map.items():
                 src_path = self.config.obsidian_vault_path / src_folder
-                dest_rel_path = slugify_path(dest_folder)
-                dest_path = self.config.hugo_project_path / "content" / dest_rel_path
+                dest_folder = dest_folder.strip()
+                if dest_folder:
+                    dest_path = self.config.hugo_project_path / "content" / dest_folder
+                else:
+                    # Empty target_dir, put in content folder directly
+                    dest_path = self.config.hugo_project_path / "content"
+                
+                # Ensure target directory exists
+                try:
+                    dest_path.mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    raise RuntimeError(f"Failed to create target directory '{dest_path}': {e}")
+                
                 folder_map[src_path] = dest_path
         else:
             # Use all folders in vault
@@ -228,8 +240,15 @@ class ObsidianToHugoConverter:
                 excludes=self.config.excluded_dirs,
             ):
                 rel_path = folder_path.relative_to(self.config.obsidian_vault_path)
-                dest_rel_path = slugify_path(str(rel_path))
-                dest_path = self.config.hugo_project_path / "content" / dest_rel_path
+                # Use original format without slugify
+                dest_path = self.config.hugo_project_path / "content" / rel_path
+                
+                # Ensure target directory exists
+                try:
+                    dest_path.mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    raise RuntimeError(f"Failed to create target directory '{dest_path}': {e}")
+                
                 folder_map[folder_path] = dest_path
                 
             # Add vault root folder
@@ -281,6 +300,10 @@ class ObsidianToHugoConverter:
                     # Parse note
                     note_content = note_path.read_text(encoding="utf-8")
                     note = frontmatter.loads(note_content)
+                    
+                    # Extract metadata and store it
+                    metadata = self._process_metadata(note.metadata, note_path)
+                    self.note_metadata_map[note_path] = metadata
                     
                     # Extract links from content
                     self.link_processor.extract_links_from_content(
@@ -338,9 +361,17 @@ class ObsidianToHugoConverter:
         """
         # Get slug from metadata or generate from filename
         slug = note.metadata.get("slug")
-        if not slug:
+        if slug:
+            # Clean slug from metadata by removing markdown link syntax
+            slug = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', str(slug))
+            slug = re.sub(r'[\[\]\(\)#]', '', slug)
+            slug = slugify_path(add_spaces_to_content(slug))
+        else:
             filename = note_path.stem
-            slug = slugify_path(add_spaces_to_content(filename))
+            # Clean filename by removing markdown link syntax before slugifying
+            clean_filename = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', filename)
+            clean_filename = re.sub(r'[\[\]\(\)#]', '', clean_filename)
+            slug = slugify_path(add_spaces_to_content(clean_filename))
         
         # Add language suffix if specified
         lang = note.metadata.get("lang")
@@ -514,12 +545,15 @@ class ObsidianToHugoConverter:
             post_path: Destination post path
             note_files_map: Mapping of all note paths to post paths
         """
-        # Read and parse note
+        # Get pre-parsed metadata
+        metadata = self.note_metadata_map.get(note_path)
+        if not metadata:
+            logger.error(f"No metadata found for {note_path}")
+            return
+            
+        # Read and parse note content only
         note_content = note_path.read_text(encoding="utf-8")
         note = frontmatter.loads(note_content)
-        
-        # Process metadata
-        metadata = self._process_metadata(note.metadata, note_path)
         
         # Replace links in content
         processed_content = self.link_processor.replace_links_in_content(
@@ -600,7 +634,7 @@ class ObsidianToHugoConverter:
         metadata.lang = raw_metadata.get("lang")
         
         # Process link_words for internal linking
-        link_words = raw_metadata.get("link_words", [])
+        link_words = NoteMetadata.extract_link_words(raw_metadata)
         if isinstance(link_words, str):
             metadata.link_words = [link_words]
         elif isinstance(link_words, list):
