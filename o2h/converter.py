@@ -190,6 +190,10 @@ class ObsidianToHugoConverter:
                 stats = self.internal_linker.get_statistics()
                 self.result.internal_links_added = stats["total_links_added"]
             
+            # Add warnings for unresolved links
+            if self.link_processor.unresolved_links:
+                self.result.warnings.extend(self.link_processor.unresolved_links)
+            
             logger.info(f"Conversion completed! {self.result.converted_notes} notes converted.")
             if self.internal_linker:
                 logger.info(f"Added {self.result.internal_links_added} internal links.")

@@ -43,6 +43,7 @@ class LinkProcessor:
         """
         self.obsidian_vault_path = obsidian_vault_path
         self.inline_links: Dict[str, InlineLink] = {}
+        self.unresolved_links: List[str] = []  # 记录无法解析的链接
     
     def extract_links_from_content(
         self, 
@@ -314,7 +315,9 @@ class LinkProcessor:
         source_path = self._resolve_file_path(unquoted_uri_path, note_folder)
         
         if not source_path:
-            logger.warning(f"Cannot resolve link: {original_uri}")
+            msg = f"Link/Attachment not found: {original_uri}"
+            logger.warning(msg)
+            self.unresolved_links.append(msg)  # 记录无法解析的链接
             return None
         
         # Determine link type
@@ -966,4 +969,4 @@ class LinkProcessor:
             
             return match.group(0)
         
-        return re.sub(attr_pattern, replace_attr, attributes_str) 
+        return re.sub(attr_pattern, replace_attr, attributes_str)
