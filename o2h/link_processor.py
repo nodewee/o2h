@@ -205,7 +205,7 @@ class LinkProcessor:
             text: String to check
             
         Returns:
-            True if string looks like a file path
+            True if string looks like a file path (must have .ext)
         """
         if not text or len(text.strip()) == 0:
             return False
@@ -220,38 +220,42 @@ class LinkProcessor:
         if text.startswith("#"):
             return False
             
-        # Check for common file path patterns
-        # Relative paths starting with ./ or ../
-        if text.startswith("./") or text.startswith("../"):
-            return True
+        # Simple rule: must contain file extension and no spaces
+        if " " in text:
+            return False
             
-        # Paths that contain file extensions
-        if "." in text:
-            potential_ext = text.split(".")[-1].lower()
-            # Common file extensions that might be in frontmatter
-            common_extensions = {
-                # Images
-                "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "tiff", "ico",
-                # Documents
-                "pdf", "md", "markdown", "txt", "doc", "docx",
-                # Media
-                "mp4", "webm", "ogg", "mp3", "wav", "flac",
-                # Web files
-                "html", "htm", "css", "js", "json", "xml", "yaml", "yml", "toml"
-            }
-            if potential_ext in common_extensions:
-                # Further check: should not contain spaces (unless quoted) and should not be too long
-                if len(text) < 200 and (" " not in text or (text.startswith('"') and text.endswith('"'))):
-                    return True
-                    
-        # Paths that look like directory/file patterns (contain /)
-        if "/" in text and not text.startswith("http") and len(text) < 200:
-            # Check if it could be a file path
-            parts = text.split("/")
-            if len(parts) >= 2 and all(part for part in parts):  # No empty parts
-                return True
+        # Must have a file extension (contains . and valid extension)
+        if "." not in text:
+            return False
+            
+        # Split by / to handle multi-level paths
+        parts = text.split("/")
+        if not parts:
+            return False
+            
+        filename = parts[-1]
+        if not filename or "." not in filename:
+            return False
+            
+        name_part, ext_part = filename.rsplit(".", 1)
+        if not name_part or not ext_part:  # Both parts must exist
+            return False
+            
+        # Valid extension (2-5 chars, alphanumeric)
+        if len(ext_part) < 2 or len(ext_part) > 5 or not ext_part.isalnum():
+            return False
+            
+        # Valid filename characters (basic check)
+        invalid_chars = {'<', '>', ':', '"', '|', '?', '*', ' ', '\t', '\n', '\r'}
+        if any(char in name_part for char in invalid_chars):
+            return False
+            
+        # Check directory parts for invalid characters
+        for part in parts[:-1]:
+            if not part or any(char in part for char in invalid_chars):
+                return False
                 
-        return False
+        return True
     
     def _process_link(
         self, 
