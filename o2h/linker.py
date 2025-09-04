@@ -283,17 +283,23 @@ class InternalLinker:
         else:
             word_pattern = rf"\b{escaped_word}\b"
         
-        # Look for the word within markdown link syntax
-        # Pattern: [text containing word](url)
-        link_pattern = rf'\[([^\]]*{word_pattern}[^\]]*)\]\([^)]+\)'
+        # Check if the word appears in any link URL or link text
+        # First, find all markdown links
+        markdown_links = re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', content)
+        for match in markdown_links:
+            link_text, link_url = match.groups()
+            # Check if word appears in either link text or URL
+            if re.search(word_pattern, link_text, re.IGNORECASE) or re.search(word_pattern, link_url, re.IGNORECASE):
+                return True
         
-        # Also check for HTML links: <a href="...">text containing word</a>
-        html_link_pattern = rf'<a[^>]*>([^<]*{word_pattern}[^<]*)</a>'
-        
-        return bool(
-            re.search(link_pattern, content, re.IGNORECASE) or
-            re.search(html_link_pattern, content, re.IGNORECASE)
-        )
+        # Check HTML links
+        html_links = re.finditer(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>([^<]*)</a>', content)
+        for match in html_links:
+            link_url, link_text = match.groups()
+            if re.search(word_pattern, link_text, re.IGNORECASE) or re.search(word_pattern, link_url, re.IGNORECASE):
+                return True
+                
+        return False
     
     def get_statistics(self) -> Dict[str, int]:
         """Get internal linking statistics.
