@@ -577,6 +577,19 @@ class ObsidianToHugoConverter:
             self.config,
         )
         
+        # Handle language field based on frontmatter format
+        if metadata.lang:
+            if self.config.frontmatter_format == FrontmatterFormat.YAML:
+                # For Hugo (YAML): use languageCode, not lang
+                processed_metadata_dict["languageCode"] = metadata.lang
+                # Remove lang if it exists from original metadata
+                processed_metadata_dict.pop("lang", None)
+            else:
+                # For Zola (TOML): use lang, not languageCode
+                processed_metadata_dict["lang"] = metadata.lang
+                # Remove languageCode if it exists from original metadata
+                processed_metadata_dict.pop("languageCode", None)
+        
         # Apply internal links if enabled
         if self.internal_linker:
             processed_content = self.internal_linker.apply_internal_links(
@@ -635,7 +648,11 @@ class ObsidianToHugoConverter:
         # Process other fields
         metadata.tags = raw_metadata.get("tags", [])
         metadata.slug = raw_metadata.get("slug")
-        metadata.lang = raw_metadata.get("lang")
+        # Try to get language from 'lang' or 'languageCode' fields
+        metadata.lang = (
+            raw_metadata.get("lang") or 
+            raw_metadata.get("languageCode")
+        )
         
         # Process link_words for internal linking
         link_words = NoteMetadata.extract_link_words(raw_metadata)

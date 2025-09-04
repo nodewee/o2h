@@ -187,10 +187,11 @@ class NoteMetadata:
             data["tags"] = self.tags
         if self.slug:
             data["slug"] = self.slug
-        if self.lang:
-            data["lang"] = self.lang
         if self.link_words:
             data["link_words"] = self.link_words
+        
+        # Language field handling is now done in converter based on frontmatter format
+        # Don't add language field here, let converter handle it
             
         return data
         
