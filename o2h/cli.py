@@ -233,8 +233,12 @@ def parse_folder_mappings(folders_str: Optional[str]) -> Dict[str, str]:
             continue
 
         if ">" in item:
-            source, target = item.split(">", 1)
-            mappings[source.strip()] = target.strip()
+            parts = item.split(">", 1)
+            if len(parts) == 2:
+                source, target = parts
+                mappings[source.strip()] = target.strip()
+            else:
+                mappings[item] = item
         else:
             mappings[item] = item
 

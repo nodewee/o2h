@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
+from functools import lru_cache
 
 import frontmatter
 
@@ -25,6 +26,11 @@ class InternalLinker:
         self.max_links_per_article = max_links_per_article
         self.total_links_added = 0
         self.hugo_project_path: Optional[Path] = None
+        
+        # Pre-compile regex patterns for better performance
+        self._code_block_pattern = re.compile(r'```.*?```|``.*?``|`.*?`', re.DOTALL)
+        self._markdown_link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+        self._html_link_pattern = re.compile(r'<a\s+[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', re.IGNORECASE)
         
     def build_link_registry(
         self, 
@@ -89,6 +95,7 @@ class InternalLinker:
                 sources = [str(lw.source_note_path.name) for lw in conflicts]
                 logger.warning(f"  '{word}' conflicts between: {', '.join(sources)}")
     
+    @lru_cache(maxsize=512)
     def _generate_note_url(
         self, 
         note: frontmatter.Post, 
@@ -153,22 +160,28 @@ class InternalLinker:
             # Handle URLs with query params or anchors
             if '?' in url and '#' in url:
                 # Both query and anchor
-                base_url, query_and_anchor = url.split('?', 1)
-                if not base_url.endswith("/"):
-                    base_url = base_url + "/"
-                url = base_url + "?" + query_and_anchor
+                parts = url.split('?', 1)
+                if len(parts) == 2:
+                    base_url, query_and_anchor = parts
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    url = base_url + "?" + query_and_anchor
             elif '?' in url:
                 # Only query params
-                base_url, query = url.split('?', 1)
-                if not base_url.endswith("/"):
-                    base_url = base_url + "/"
-                url = base_url + "?" + query
+                parts = url.split('?', 1)
+                if len(parts) == 2:
+                    base_url, query = parts
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    url = base_url + "?" + query
             else:  # '#' in url
                 # Only anchor
-                base_url, anchor = url.split('#', 1)
-                if not base_url.endswith("/"):
-                    base_url = base_url + "/"
-                url = base_url + "#" + anchor
+                parts = url.split('#', 1)
+                if len(parts) == 2:
+                    base_url, anchor = parts
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    url = base_url + "#" + anchor
         else:
             # Simple URL without query params or anchors
             if not url.endswith("/"):
@@ -348,7 +361,7 @@ class InternalLinker:
         
         # Check if the word appears in any link URL or link text
         # First, find all markdown links
-        markdown_links = re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', content)
+        markdown_links = self._markdown_link_pattern.finditer(content)
         for match in markdown_links:
             link_text, link_url = match.groups()
             # Check if word appears in either link text or URL
@@ -356,7 +369,7 @@ class InternalLinker:
                 return True
         
         # Check HTML links
-        html_links = re.finditer(r'<a[^>]*href=["\']([^"\']*)["\'][^>]*>([^<]*)</a>', content)
+        html_links = self._html_link_pattern.finditer(content)
         for match in html_links:
             link_url, link_text = match.groups()
             if re.search(word_pattern, link_text, re.IGNORECASE) or re.search(word_pattern, link_url, re.IGNORECASE):

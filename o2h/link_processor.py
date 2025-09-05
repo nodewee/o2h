@@ -5,6 +5,7 @@ import re
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+from functools import lru_cache
 
 from .code_block_detector import is_range_in_code_block
 from .logger import logger
@@ -44,6 +45,14 @@ class LinkProcessor:
         self.obsidian_vault_path = obsidian_vault_path
         self.inline_links: Dict[str, InlineLink] = {}
         self.unresolved_links: List[str] = []  # 记录无法解析的链接
+        
+        # Pre-compile regex patterns for performance
+        self._wiki_link_pattern = re.compile(r'!*\[\[([^|\]]+)(?:\|[^\]]+)?\]\]')
+        self._markdown_link_pattern = re.compile(r'!*\[([^\]]*)\]\(([^)]+)\)')
+        self._html_attr_pattern = re.compile(r'(href|src)=["\']([^"\']+)["\']', re.IGNORECASE)
+        self._video_pattern = re.compile(r'\.(mp4|avi|mov|mkv|webm|flv|wmv)$', re.IGNORECASE)
+        self._metadata_link_pattern = re.compile(r"\[.*?\]\((.*?)\)")
+        self._html_tag_pattern = re.compile(r'<([a-zA-Z][a-zA-Z0-9]*)\s+([^>]+)>')
     
     def extract_links_from_content(
         self, 
@@ -62,12 +71,11 @@ class LinkProcessor:
             Content with wiki links converted to markdown links
         """
         # Convert wiki links to markdown links: [[file_path]] -> [file_path](file_path)
-        content = re.sub(r"\[\[(.*?)\]\]", r"[\1](\1)", content)
+        content = self._wiki_link_pattern.sub(r"[\1](\1)", content)
         
         # Find all markdown links and check if they're in code blocks
-        link_pattern = r"\[.*?\]\((.*?)\)"
-        for match in re.finditer(link_pattern, content):
-            original_uri = match.group(1)
+        for match in self._markdown_link_pattern.finditer(content):
+            original_uri = match.group(2)  # URI is the second group
             link_start = match.start()
             link_end = match.end()
             
@@ -93,11 +101,8 @@ class LinkProcessor:
             note_folder: Directory containing the note
             note_filepath: Path to the note file
         """
-        # Pattern to match HTML tags with attributes
-        # This captures tag name and all attributes
-        html_tag_pattern = r'<([a-zA-Z][a-zA-Z0-9]*)\s+([^>]+)>'
-        
-        for tag_match in re.finditer(html_tag_pattern, content):
+        # Use pre-compiled pattern for HTML tags with attributes
+        for tag_match in self._html_tag_pattern.finditer(content):
             tag_start = tag_match.start()
             tag_end = tag_match.end()
             
@@ -108,9 +113,8 @@ class LinkProcessor:
             tag_name = tag_match.group(1).lower()
             attributes_str = tag_match.group(2)
             
-            # Extract individual attribute-value pairs
-            attr_pattern = r'(\w+)\s*=\s*["\']([^"\']*)["\']'
-            for attr_match in re.finditer(attr_pattern, attributes_str):
+            # Extract individual attribute-value pairs using pre-compiled pattern
+            for attr_match in self._html_attr_pattern.finditer(attributes_str):
                 attr_name = attr_match.group(1).lower()
                 attr_value = attr_match.group(2)
                 
@@ -170,9 +174,8 @@ class LinkProcessor:
             note_filepath: Path to the note file
         """
         if isinstance(value, str):
-            # Look for markdown links in string values
-            link_pattern = r"\[.*?\]\((.*?)\)"
-            for match in re.finditer(link_pattern, value):
+            # Look for markdown links in string values using pre-compiled pattern
+            for match in self._metadata_link_pattern.finditer(value):
                 original_uri = match.group(1)
                 link_start = match.start()
                 link_end = match.end()
@@ -207,54 +210,79 @@ class LinkProcessor:
         Returns:
             True if string looks like a file path (must have .ext)
         """
+        logger.debug(f"Checking if text is potential file path: '{text}'")
+        
         if not text or len(text.strip()) == 0:
+            logger.debug("   Text is empty or whitespace only")
             return False
             
         text = text.strip()
         
         # Skip if it's a URL (external link)
         if self._is_external_link(text):
+            logger.debug(f"   Text is external link: {text}")
             return False
             
         # Skip if it's just an anchor
         if text.startswith("#"):
+            logger.debug(f"   Text is anchor: {text}")
             return False
             
         # Simple rule: must contain file extension and no spaces
         if " " in text:
+            logger.debug(f"   Text contains spaces: {text}")
             return False
             
         # Must have a file extension (contains . and valid extension)
         if "." not in text:
+            logger.debug(f"   Text has no dot: {text}")
             return False
             
         # Split by / to handle multi-level paths
         parts = text.split("/")
         if not parts:
+            logger.debug("   No parts after split")
             return False
             
         filename = parts[-1]
+        logger.debug(f"   Filename extracted: '{filename}'")
+        
         if not filename or "." not in filename:
+            logger.debug(f"   Filename is invalid or has no dot: '{filename}'")
             return False
             
-        name_part, ext_part = filename.rsplit(".", 1)
+        parts = filename.rsplit(".", 1)
+        logger.debug(f"   Split filename into parts: {parts}")
+        
+        if len(parts) != 2:
+            logger.debug(f"   Invalid split result (expected 2 parts, got {len(parts)}): {parts}")
+            return False
+            
+        name_part, ext_part = parts
+        logger.debug(f"   Name part: '{name_part}', Extension part: '{ext_part}'")
+        
         if not name_part or not ext_part:  # Both parts must exist
+            logger.debug(f"   Empty name or extension part: name='{name_part}', ext='{ext_part}'")
             return False
             
         # Valid extension (2-5 chars, alphanumeric)
         if len(ext_part) < 2 or len(ext_part) > 5 or not ext_part.isalnum():
+            logger.debug(f"   Invalid extension: '{ext_part}' (length={len(ext_part)}, isalnum={ext_part.isalnum()})")
             return False
             
         # Valid filename characters (basic check)
         invalid_chars = {'<', '>', ':', '"', '|', '?', '*', ' ', '\t', '\n', '\r'}
         if any(char in name_part for char in invalid_chars):
+            logger.debug(f"   Invalid characters in name part: '{name_part}'")
             return False
             
         # Check directory parts for invalid characters
         for part in parts[:-1]:
             if not part or any(char in part for char in invalid_chars):
+                logger.debug(f"   Invalid directory part: '{part}'")
                 return False
                 
+        logger.debug(f"   Valid file path: '{text}'")
         return True
     
     def _process_link(
@@ -270,7 +298,10 @@ class LinkProcessor:
             note_folder: Directory containing the note
             note_filepath: Path to the note file
         """
+        logger.debug(f"Processing link: {original_uri} in {note_filepath}")
+        
         if original_uri in self.inline_links:
+            logger.debug(f"Skipping already processed link: {original_uri}")
             return
             
         if not original_uri:
@@ -278,11 +309,15 @@ class LinkProcessor:
             return
             
         if self._is_external_link(original_uri):
+            logger.debug(f"Skipping external link: {original_uri}")
             return
             
         link = self._create_link_object(original_uri, note_folder)
         if link:
             self.inline_links[original_uri] = link
+            logger.debug(f"Stored link: {original_uri} -> {link}")
+        else:
+            logger.debug(f"Failed to create link object for: {original_uri}")
     
     def _is_external_link(self, uri: str) -> bool:
         """Check if URI is an external link."""
@@ -695,6 +730,9 @@ class LinkProcessor:
         Returns:
             Content with replaced links
         """
+        logger.debug(f"   Replacing links in content ({len(content)} chars)")
+        logger.debug(f"   Note files map contains {len(note_files_map)} entries")
+        
         # Convert wiki links to markdown links first
         content = re.sub(r"\[\[(.*?)\]\]", r"[\1](\1)", content)
         
@@ -740,6 +778,7 @@ class LinkProcessor:
             content, note_files_map, content_dir, attachment_rel_path, config
         )
         
+        logger.debug(f"   Link replacement complete")
         return content
     
     def _get_video_template(self) -> str:
@@ -871,22 +910,28 @@ class LinkProcessor:
                 # Handle URLs with query params or anchors
                 if '?' in url and '#' in url:
                     # Both query and anchor
-                    base_url, query_and_anchor = url.split('?', 1)
-                    if not base_url.endswith("/"):
-                        base_url = base_url + "/"
-                    url = base_url + "?" + query_and_anchor
+                    parts = url.split('?', 1)
+                    if len(parts) == 2:
+                        base_url, query_and_anchor = parts
+                        if not base_url.endswith("/"):
+                            base_url = base_url + "/"
+                        url = base_url + "?" + query_and_anchor
                 elif '?' in url:
                     # Only query params
-                    base_url, query = url.split('?', 1)
-                    if not base_url.endswith("/"):
-                        base_url = base_url + "/"
-                    url = base_url + "?" + query
+                    parts = url.split('?', 1)
+                    if len(parts) == 2:
+                        base_url, query = parts
+                        if not base_url.endswith("/"):
+                            base_url = base_url + "/"
+                        url = base_url + "?" + query
                 else:  # '#' in url
                     # Only anchor
-                    base_url, anchor = url.split('#', 1)
-                    if not base_url.endswith("/"):
-                        base_url = base_url + "/"
-                    url = base_url + "#" + anchor
+                    parts = url.split('#', 1)
+                    if len(parts) == 2:
+                        base_url, anchor = parts
+                        if not base_url.endswith("/"):
+                            base_url = base_url + "/"
+                        url = base_url + "#" + anchor
             else:
                 # Simple URL without query params or anchors
                 if not url.endswith("/"):
@@ -920,22 +965,28 @@ class LinkProcessor:
                 # Handle URLs with query params or anchors
                 if '?' in dest_uri and '#' in dest_uri:
                     # Both query and anchor
-                    base_url, query_and_anchor = dest_uri.split('?', 1)
-                    if not base_url.endswith("/"):
-                        base_url = base_url + "/"
-                    dest_uri = base_url + "?" + query_and_anchor
+                    parts = dest_uri.split('?', 1)
+                    if len(parts) == 2:
+                        base_url, query_and_anchor = parts
+                        if not base_url.endswith("/"):
+                            base_url = base_url + "/"
+                        dest_uri = base_url + "?" + query_and_anchor
                 elif '?' in dest_uri:
                     # Only query params
-                    base_url, query = dest_uri.split('?', 1)
-                    if not base_url.endswith("/"):
-                        base_url = base_url + "/"
-                    dest_uri = base_url + "?" + query
+                    parts = dest_uri.split('?', 1)
+                    if len(parts) == 2:
+                        base_url, query = parts
+                        if not base_url.endswith("/"):
+                            base_url = base_url + "/"
+                        dest_uri = base_url + "?" + query
                 else:  # '#' in dest_uri
                     # Only anchor
-                    base_url, anchor = dest_uri.split('#', 1)
-                    if not base_url.endswith("/"):
-                        base_url = base_url + "/"
-                    dest_uri = base_url + "#" + anchor
+                    parts = dest_uri.split('#', 1)
+                    if len(parts) == 2:
+                        base_url, anchor = parts
+                        if not base_url.endswith("/"):
+                            base_url = base_url + "/"
+                        dest_uri = base_url + "#" + anchor
             else:
                 # Simple URL without query params or anchors
                 if not dest_uri.endswith("/"):
@@ -1073,22 +1124,28 @@ class LinkProcessor:
                         # Handle URLs with query params or anchors
                         if '?' in new_value and '#' in new_value:
                             # Both query and anchor
-                            base_url, query_and_anchor = new_value.split('?', 1)
-                            if not base_url.endswith("/"):
-                                base_url = base_url + "/"
-                            new_value = base_url + "?" + query_and_anchor
+                            parts = new_value.split('?', 1)
+                            if len(parts) == 2:
+                                base_url, query_and_anchor = parts
+                                if not base_url.endswith("/"):
+                                    base_url = base_url + "/"
+                                new_value = base_url + "?" + query_and_anchor
                         elif '?' in new_value:
                             # Only query params
-                            base_url, query = new_value.split('?', 1)
-                            if not base_url.endswith("/"):
-                                base_url = base_url + "/"
-                            new_value = base_url + "?" + query
+                            parts = new_value.split('?', 1)
+                            if len(parts) == 2:
+                                base_url, query = parts
+                                if not base_url.endswith("/"):
+                                    base_url = base_url + "/"
+                                new_value = base_url + "?" + query
                         else:  # '#' in new_value
                             # Only anchor
-                            base_url, anchor = new_value.split('#', 1)
-                            if not base_url.endswith("/"):
-                                base_url = base_url + "/"
-                            new_value = base_url + "#" + anchor
+                            parts = new_value.split('#', 1)
+                            if len(parts) == 2:
+                                base_url, anchor = parts
+                                if not base_url.endswith("/"):
+                                    base_url = base_url + "/"
+                                new_value = base_url + "#" + anchor
                     else:
                         # Simple URL without query params or anchors
                         if not new_value.endswith("/"):
