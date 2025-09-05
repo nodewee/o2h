@@ -31,14 +31,13 @@ class ConversionConfig:
     folder_name_map: Dict[str, str] = field(default_factory=dict)
     clean_dest_dirs: bool = False
     md5_attachment: bool = False
-    frontmatter_format: FrontmatterFormat = FrontmatterFormat.YAML
+    frontmatter_format: Optional[FrontmatterFormat] = None  # Auto-detect if None
     excluded_dirs: List[str] = field(default_factory=lambda: [r"^\."])
     # Internal linking configuration
     enable_internal_linking: bool = True
     internal_link_max_per_article: int = 1
     
     def __post_init__(self) -> None:
-        """Validate configuration after initialization."""
         if not self.obsidian_vault_path.exists():
             raise FileNotFoundError(f"Obsidian vault not found: {self.obsidian_vault_path}")
         if not self.hugo_project_path.exists():
@@ -50,6 +49,26 @@ class ConversionConfig:
         if self.internal_link_max_per_article > 100:
             import warnings
             warnings.warn("internal_link_max_per_article > 100 may cause performance issues")
+        
+        # Auto-detect SSG type and set frontmatter format if not specified
+        if self.frontmatter_format is None:
+            # Import inside to avoid circular imports
+            try:
+                from o2h.ssg_detector import SSGDetector, SSGType
+            except ImportError:
+                # Fallback for direct module execution
+                from ssg_detector import SSGDetector, SSGType
+            
+            detector = SSGDetector(self.hugo_project_path)
+            ssg_type = detector.detect_ssg_type()
+            
+            if ssg_type == SSGType.HUGO:
+                self.frontmatter_format = FrontmatterFormat.YAML
+            elif ssg_type == SSGType.ZOLA:
+                self.frontmatter_format = FrontmatterFormat.TOML
+            else:
+                # Default to YAML for unknown SSG types
+                self.frontmatter_format = FrontmatterFormat.YAML
 
 
 @dataclass

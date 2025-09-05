@@ -177,10 +177,10 @@ Examples:
 
     parser.add_argument(
         "--frontmatter-format",
-        help="Frontmatter format (default: yaml for Hugo, toml for Zola)",
+        help="Frontmatter format (auto-detect if not specified)",
         type=str,
         choices=["yaml", "toml"],
-        default="yaml",
+        default=None,
         metavar="FORMAT",
     )
 
@@ -322,8 +322,8 @@ def create_config_from_args(args: argparse.Namespace) -> ConversionConfig:
     """
     folder_mappings = get_folder_mappings_from_args(args)
     
-    # Convert frontmatter format string to enum
-    frontmatter_format = FrontmatterFormat(args.frontmatter_format)
+    # Convert frontmatter format string to enum (None for auto-detection)
+    frontmatter_format = FrontmatterFormat(args.frontmatter_format) if args.frontmatter_format else None
     
     # Validate attachment parameters
     if args.attachment_target_path and not args.attachment_host:

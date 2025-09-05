@@ -154,6 +154,21 @@ class ObsidianToHugoConverter:
             self.internal_linker = InternalLinker(config.internal_link_max_per_article)
         self.result = ConversionResult()
         self.note_metadata_map: Dict[Path, NoteMetadata] = {}  # New metadata storage
+        
+        # Log SSG type detection
+        try:
+            from .ssg_detector import SSGDetector
+            detector = SSGDetector(config.hugo_project_path)
+            ssg_type = detector.detect_ssg_type()
+            
+            format_name = "YAML" if config.frontmatter_format == FrontmatterFormat.YAML else "TOML"
+            if ssg_type.value != "unknown":
+                logger.info(f"Detected {ssg_type.value.title()} SSG - using {format_name} frontmatter")
+            else:
+                logger.info(f"SSG type unknown - defaulting to {format_name} frontmatter")
+        except ImportError:
+            format_name = "YAML" if config.frontmatter_format == FrontmatterFormat.YAML else "TOML"
+            logger.info(f"Using {format_name} frontmatter")
 
     def convert(self) -> ConversionResult:
         """Perform the complete conversion process.
