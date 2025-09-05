@@ -1,7 +1,7 @@
-"""O2H - Convert Obsidian notes to Hugo/Zola posts."""
+"""OV2SSG - Convert Obsidian vault to Static Site Generator posts."""
 
 __version__ = "0.3.8"
-__title__ = "O2H"
+__title__ = "OV2SSG"
 __author__ = "nodewee@gmail.com"
 __license__ = "MIT"
 

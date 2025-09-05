@@ -1,4 +1,4 @@
-"""Utility functions for O2H converter."""
+"""Utility functions for OV2SSG converter."""
 
 import datetime
 import hashlib

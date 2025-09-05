@@ -1,8 +1,8 @@
-## O2H
+## OV2SSG
 
 🌐 [English](README.md) | [中文](README_zh.md)
 
-Convert **O**bsidian notes **to** **H**ugo/Zola posts - A modern, type-safe Python converter with improved architecture.
+Convert **O**bsidian **V**ault **to** **S**tatic **S**ite **G**enerator posts - A modern, type-safe Python converter with improved architecture.
 
 ## ✨ Features
 
@@ -74,14 +74,14 @@ Convert **O**bsidian notes **to** **H**ugo/Zola posts - A modern, type-safe Pyth
 
 ### From Source
 ```bash
-git clone https://github.com/nodewee/o2h.git
-cd o2h
+git clone https://github.com/nodewee/ov2ssg.git
+cd ov2ssg
 pip install -e .
 ```
 
 ### Using pip (coming soon)
 ```bash
-pip install o2h
+pip install ov2ssg
 ```
 
 ## 📖 Usage
@@ -90,25 +90,25 @@ pip install o2h
 
 ```bash
 # Convert notes for Hugo SSG (YAML frontmatter - default)
-o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs
+ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs
 
 # Convert notes for Zola SSG (TOML frontmatter)  
-o2h "/path/to/obsidian/vault" "/path/to/zola/project" --folders blogs --frontmatter-format toml
+ov2ssg "/path/to/obsidian/vault" "/path/to/zola/project" --folders blogs --frontmatter-format toml
 
 # Convert specific folders with custom mappings
-o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
+ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
 
 # Use custom attachment path with CDN host (absolute path)
-o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
+ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
 
 # Use custom attachment path with CDN host (relative path)
-o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
+ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
 
 # Disable internal linking feature
-o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
+ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folders blogs --disable-internal-linking
 
 # Advanced usage with all options
-o2h "/path/to/vault" "/path/to/project" \
+ov2ssg "/path/to/vault" "/path/to/project" \
     --folders "blogs>posts" \
     --attachment-folder "media/images" \
     --attachment-target-path "/var/www/cdn/attachments" \
@@ -124,8 +124,8 @@ o2h "/path/to/vault" "/path/to/project" \
 
 ```python
 from pathlib import Path
-from o2h import ObsidianToHugoConverter, ConversionConfig
-from o2h.models import FrontmatterFormat
+from ov2ssg import ObsidianToHugoConverter, ConversionConfig
+from ov2ssg.models import FrontmatterFormat
 
 # Basic conversion
 config = ConversionConfig(
@@ -162,7 +162,7 @@ config = ConversionConfig(
 
 ### Project Structure
 ```
-o2h/
+ov2ssg/
 ├── __init__.py          # Package initialization
 ├── cli.py               # Command-line interface
 ├── converter.py         # Main conversion logic
@@ -215,7 +215,7 @@ This article introduces machine learning concepts...
 
 ### How it works
 
-1. **Registry Building**: O2H scans all articles and builds a registry of `link_words` → article URLs
+1. **Registry Building**: OV2SSG scans all articles and builds a registry of `link_words` → article URLs
 2. **Smart Linking**: When processing each article, it finds these keywords in other articles' content
 3. **Automatic Links**: First occurrence of each keyword gets converted to a link (configurable limit)
 4. **Conflict Resolution**: If multiple articles define the same `link_words`, the first one (or higher priority) wins
@@ -238,7 +238,7 @@ This article introduces machine learning concepts...
 
 ## 🐛 Error Handling
 
-O2H provides comprehensive error handling and reporting:
+OV2SSG provides comprehensive error handling and reporting:
 
 - **Validation**: Input path and configuration validation
 - **Warnings**: Non-fatal issues (missing links, etc.)

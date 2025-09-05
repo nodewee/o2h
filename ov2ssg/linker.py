@@ -1,4 +1,4 @@
-"""Internal linking functionality for O2H converter."""
+"""Internal linking functionality for OV2SSG converter."""
 
 import re
 from pathlib import Path

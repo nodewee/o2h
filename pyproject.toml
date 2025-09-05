@@ -3,9 +3,9 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "o2h"
+name = "ov2ssg"
 version = "0.3.8"
-description = "Convert Obsidian notes to Hugo/Zola posts"
+description = "Convert Obsidian vault to Static Site Generator posts"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -26,7 +26,7 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-keywords = ["obsidian", "hugo", "zola", "markdown", "converter"]
+keywords = ["obsidian", "vault", "hugo", "zola", "ssg", "markdown", "converter"]
 requires-python = ">=3.9"
 dependencies = [
     "python-frontmatter>=1.0.0",
@@ -45,15 +45,15 @@ dev = [
 ]
 
 [project.scripts]
-o2h = "o2h.cli:main"
+ov2ssg = "ov2ssg.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/nodewee/o2h"
-Repository = "https://github.com/nodewee/o2h.git"
-Issues = "https://github.com/nodewee/o2h/issues"
+Homepage = "https://github.com/nodewee/ov2ssg"
+Repository = "https://github.com/nodewee/ov2ssg.git"
+Issues = "https://github.com/nodewee/ov2ssg/issues"
 
 [tool.setuptools]
-packages = ["o2h"]
+packages = ["ov2ssg"]
 
 [tool.black]
 line-length = 88
@@ -77,7 +77,7 @@ extend-exclude = '''
 profile = "black"
 line_length = 88
 skip_glob = [".env/*", "__pycache__/*"]
-known_first_party = ["o2h"]
+known_first_party = ["ov2ssg"]
 
 [tool.mypy]
 python_version = "3.9"
@@ -118,4 +118,4 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--cov=o2h --cov-report=term-missing --cov-report=html"
+addopts = "--cov=ov2ssg --cov-report=term-missing --cov-report=html"

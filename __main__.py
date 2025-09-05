@@ -1,5 +1,5 @@
-"""CLI Entry Point for O2H."""
+"""CLI Entry Point for OV2SSG."""
 
 if __name__ == "__main__":
-    from o2h.cli import main
+    from ov2ssg.cli import main
     main()

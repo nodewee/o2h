@@ -1,8 +1,8 @@
-## O2H
+## OV2SSG
 
 🌐 [English](README.md) | [中文](README_zh.md)
 
-将 **O**bsidian .md 转换成 **H**ugo/Zola .md
+将 **O**bsidian **V**ault 转换成 **S**tatic **S**ite **G**enerator .md
 
 ## 功能
 
@@ -66,8 +66,8 @@
 ## 用法
 
 ```sh
-git clone https://github.com/nodewee/o2h.git
-cd o2h
+git clone https://github.com/nodewee/ov2ssg.git
+cd ov2ssg
 pdm install
 # 或者 pip install -r requirements.txt
 python . --help

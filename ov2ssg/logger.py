@@ -1,4 +1,4 @@
-"""Logging configuration for O2H."""
+"""Logging configuration for OV2SSG."""
 
 import logging
 import sys
@@ -6,8 +6,8 @@ from typing import Optional
 
 
 def setup_logger(
-    name: str = "o2h",
-    level: int = logging.INFO,
+    name: str = "ov2ssg",
+    level: str = "INFO",
     format_string: Optional[str] = None,
 ) -> logging.Logger:
     """Set up and configure logger.
@@ -49,4 +49,4 @@ def setup_logger(
 
 
 # Global logger instance
-logger = setup_logger() 
+logger = setup_logger()

@@ -1,4 +1,4 @@
-"""Command-line interface for O2H converter."""
+"""Command-line interface for OV2SSG converter."""
 
 import argparse
 import sys
@@ -67,35 +67,35 @@ Features:
 
 Examples:
   # Convert for Hugo (YAML frontmatter - default)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs
+  ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs
 
   # Convert for Zola (TOML frontmatter)
-  o2h "/path/to/obsidian/vault" "/path/to/zola/project" --folder blogs --frontmatter-format toml
+  ov2ssg "/path/to/obsidian/vault" "/path/to/zola/project" --folder blogs --frontmatter-format toml
 
   # Convert specific folders with custom mappings (new recommended syntax)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" \\
+  ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" \\
       --folder "blogs" "posts" \\
       --folder "notes" "articles" \\
       --folder "tutorials"
 
   # Legacy syntax (still supported but deprecated)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
+  ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folders "blogs>posts notes>articles"
   
   # Use custom attachment path (absolute path)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
+  ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --attachment-target-path "/var/www/static/images" --attachment-host "cdn.example.com"
   
   # Use custom attachment path (relative to current directory)
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
+  ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --attachment-target-path "media/uploads" --attachment-host "assets.mysite.com"
   
   # Disable internal linking feature
-  o2h "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --disable-internal-linking
+  ov2ssg "/path/to/obsidian/vault" "/path/to/hugo/project" --folder blogs --disable-internal-linking
 """
 
     parser = argparse.ArgumentParser(
         prog=__title__.lower(),
         description=description,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="For more information, visit: https://github.com/nodewee/o2h"
+        epilog="For more information, visit: https://github.com/nodewee/ov2ssg"
     )
 
     # Required arguments

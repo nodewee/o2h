@@ -1,4 +1,4 @@
-"""Data models for O2H converter."""
+"""Data models for OV2SSG converter."""
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -54,7 +54,7 @@ class ConversionConfig:
         if self.frontmatter_format is None:
             # Import inside to avoid circular imports
             try:
-                from o2h.ssg_detector import SSGDetector, SSGType
+                from ov2ssg.ssg_detector import SSGDetector, SSGType
             except ImportError:
                 # Fallback for direct module execution
                 from ssg_detector import SSGDetector, SSGType

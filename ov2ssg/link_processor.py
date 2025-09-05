@@ -1,4 +1,4 @@
-"""Link processing utilities for O2H converter."""
+"""Link processing utilities for OV2SSG converter."""
 
 import html
 import re

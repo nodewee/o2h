@@ -15,9 +15,9 @@ from typing import Dict, List, Optional
 from functools import lru_cache
 
 import frontmatter
-from o2h.add_spaces import add_spaces_to_content
+from ov2ssg.add_spaces import add_spaces_to_content
 from slugify import slugify
-from o2h.utils import (
+from ov2ssg.utils import (
     calc_file_md5,
     format_time,
     get_file_creation_time,
@@ -157,7 +157,7 @@ class ObsidianToHugoConverter:
         self.note_metadata_map: Dict[Path, NoteMetadata] = {}  # New metadata storage
         
         # Log configuration details in verbose mode
-        logger.info("🔧 Initializing O2H converter...")
+        logger.info("🔧 Initializing OV2SSG converter...")
         logger.debug(f"Configuration: {config}")
         logger.debug(f"Vault path: {config.obsidian_vault_path}")
         logger.debug(f"Project path: {config.hugo_project_path}")
