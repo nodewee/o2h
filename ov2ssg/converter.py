@@ -216,12 +216,16 @@ class ObsidianToHugoConverter:
                     content_dir, 
                     self.config.hugo_project_path
                 )
+                print(f"   🔗 Building internal link registry...")
+
+            # Generate Hugo/Zola posts with progress
+            self._generate_posts_with_progress(note_files_map, folder_map)
+            
+            # Collect final internal link statistics after posts are generated
+            if self.internal_linker:
                 stats = self.internal_linker.get_statistics()
                 self.result.internal_links_added = stats["total_links_added"]
                 print(f"   🔗 Added {self.result.internal_links_added} internal links")
-            
-            # Generate Hugo/Zola posts with progress
-            self._generate_posts_with_progress(note_files_map, folder_map)
             
             # Add warnings for unresolved links
             if self.link_processor.unresolved_links:
@@ -820,7 +824,7 @@ class ObsidianToHugoConverter:
             if metadata.link_words:
                 # Update content with internal links
                 metadata.content = self.internal_linker.apply_internal_links(
-                    metadata.content, metadata.link_words, note_path
+                    metadata.content, note_path, metadata
                 )
 
     def _build_internal_link_registry_with_progress(self, notes_metadata: Dict[Path, NoteMetadata]) -> None:
@@ -845,7 +849,7 @@ class ObsidianToHugoConverter:
             if metadata.link_words:
                 # Update content with internal links
                 metadata.content = self.internal_linker.apply_internal_links(
-                    metadata.content, metadata.link_words, note_path
+                    metadata.content, note_path, metadata
                 )
             
             processed += 1
@@ -857,7 +861,7 @@ class ObsidianToHugoConverter:
         
         # Show statistics
         stats = self.internal_linker.get_statistics()
-        print(f"   ✅ Processed {stats['total_links']} internal links across {stats['notes_with_links']} notes")
+        print(f"   ✅ Registered {stats['total_link_words']} link words, added {stats['total_links_added']} internal links")
 
     def _validate_note_links(self, note_files_map: Dict[Path, Path], folder_map: Dict[Path, Path]) -> None:
         """Validate that linked notes exist in the conversion map, providing detailed warnings.

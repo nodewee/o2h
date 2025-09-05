@@ -305,18 +305,15 @@ class InternalLinker:
         # Escape special regex characters
         escaped_word = re.escape(word)
         
-        # Check if word contains both Chinese and English characters
+        # Check if word contains Chinese characters
         has_chinese = self._contains_chinese(word)
-        has_english = any(c.isalpha() for c in word)
         
-        if has_chinese and has_english:
-            # Mixed Chinese-English: use more flexible boundaries
-            return escaped_word
-        elif has_chinese:
-            # Pure Chinese: no word boundaries needed
+        if has_chinese:
+            # Chinese content: use simple exact match for Chinese characters
+            # The word boundaries in Chinese context are handled by context
             return escaped_word
         else:
-            # Pure English: use strict word boundaries
+            # English content: use strict word boundaries
             return rf"\b{escaped_word}\b"
     
     def _contains_chinese(self, text: str) -> bool:
@@ -353,10 +350,13 @@ class InternalLinker:
         # Escape the word for regex
         escaped_word = re.escape(word)
         
-        # Create pattern to match word boundaries (for English) or exact match (for Chinese)
-        if self._contains_chinese(word):
+        # Create pattern based on content type
+        has_chinese = self._contains_chinese(word)
+        if has_chinese:
+            # Chinese content: use exact match
             word_pattern = escaped_word
         else:
+            # English content: use word boundaries
             word_pattern = rf"\b{escaped_word}\b"
         
         # Check if the word appears in any link URL or link text
