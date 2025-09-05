@@ -11,6 +11,8 @@ from .code_block_detector import is_range_in_code_block
 from .logger import logger
 from .models import InternalLinkRegistry, LinkWord, NoteMetadata
 from .hugo_config import HugoConfigReader
+from .zola_config import ZolaConfigReader
+from .ssg_detector import SSGDetector, SSGType
 
 
 class InternalLinker:
@@ -26,6 +28,7 @@ class InternalLinker:
         self.max_links_per_article = max_links_per_article
         self.total_links_added = 0
         self.hugo_project_path: Optional[Path] = None
+        self.ssg_type: SSGType = SSGType.UNKNOWN
         
         # Pre-compile regex patterns for better performance
         self._code_block_pattern = re.compile(r'```.*?```|``.*?``|`.*?`', re.DOTALL)
@@ -43,12 +46,16 @@ class InternalLinker:
         Args:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path for URL generation
-            hugo_project_path: Path to the Hugo project directory
+            hugo_project_path: Path to the Hugo/Zola project directory
         """
         logger.info("Building internal link registry...")
         
         if hugo_project_path:
             self.hugo_project_path = hugo_project_path
+            # Detect SSG type
+            detector = SSGDetector(hugo_project_path)
+            self.ssg_type = detector.detect_ssg_type()
+            logger.info(f"Detected SSG type: {self.ssg_type.value}")
         
         for note_path, post_path in note_files_map.items():
             if not post_path:  # Skip notes that won't be converted
@@ -84,7 +91,10 @@ class InternalLinker:
                 logger.debug(f"Added {len(link_words)} link words from {note_path.name}")
                 
             except Exception as e:
+                import traceback
                 logger.error(f"Failed to process link words from {note_path}: {e}")
+                logger.debug(f"Detailed error traceback for {note_path}:")
+                logger.debug(traceback.format_exc())
         
         logger.info(f"Built registry with {len(self.registry.link_words)} unique link words")
         
@@ -102,7 +112,7 @@ class InternalLinker:
         post_path: Path, 
         content_dir: Path
     ) -> str:
-        """Generate URL for a note.
+        """Generate URL for a note based on SSG type.
         
         Args:
             note: Parsed frontmatter post
@@ -117,11 +127,22 @@ class InternalLinker:
         
         # Get relative path from content directory
         rel_path = post_path.relative_to(content_dir)
-        url_path = str(rel_path.with_suffix(""))
         
         # Extract slug from filename or use title
         slug = note.metadata.get("slug", Path(rel_path).stem)
         
+        # Handle Zola URL generation
+        if self.ssg_type == SSGType.ZOLA:
+            url = ZolaConfigReader.generate_url_from_path(
+                zola_project_path=self.hugo_project_path,
+                post_path=post_path,
+                content_dir=content_dir,
+                slug=slug,
+                lang=lang
+            )
+            return url
+        
+        # Handle Hugo URL generation (default)
         # Extract section from path
         section = "posts"
         if len(rel_path.parts) > 1:

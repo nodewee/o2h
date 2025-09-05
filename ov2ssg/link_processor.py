@@ -11,6 +11,9 @@ from .code_block_detector import is_range_in_code_block
 from .logger import logger
 from .models import InlineLink, LinkType
 from .utils import slugify_path
+from .ssg_detector import SSGDetector, SSGType
+from .zola_config import ZolaConfigReader
+from .hugo_config import HugoConfigReader
 
 
 # Frontmatter fields to ignore during link processing
@@ -839,7 +842,7 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path], 
         content_dir: Path
     ) -> str:
-        """Get URI for note link using Hugo permalink configuration.
+        """Get URI for note link based on SSG type.
         
         Args:
             link: InlineLink object
@@ -856,22 +859,38 @@ class LinkProcessor:
         if not post_path:
             return "#"
             
+        # Detect SSG type
+        project_path = content_dir.parent if content_dir.name == "content" else None
+        ssg_type = SSGType.UNKNOWN
+        if project_path and project_path.exists():
+            detector = SSGDetector(project_path)
+            ssg_type = detector.detect_ssg_type()
+        
         # Read target note for metadata
         try:
             import frontmatter
-            from .hugo_config import HugoConfigReader
             
             target_note_content = link.source_path.read_text(encoding="utf-8")
             target_note = frontmatter.loads(target_note_content)
             
             # Extract metadata for URL generation
             target_lang = target_note.metadata.get("lang")
+            slug = target_note.metadata.get("slug", Path(post_path.stem))
             
+            # Handle Zola URL generation
+            if ssg_type == SSGType.ZOLA:
+                url = ZolaConfigReader.generate_url_from_path(
+                    zola_project_path=project_path,
+                    post_path=post_path,
+                    content_dir=content_dir,
+                    slug=slug,
+                    lang=target_lang
+                )
+                return urllib.parse.quote(url)
+            
+            # Handle Hugo URL generation (default)
             # Get relative path and extract section
             dest_rel_path = post_path.relative_to(content_dir)
-            
-            # Extract slug from filename or use title
-            slug = target_note.metadata.get("slug", Path(dest_rel_path).stem)
             
             # Extract section from path
             section = "posts"
@@ -883,9 +902,8 @@ class LinkProcessor:
             title = target_note.metadata.get("title", slug)
             
             # Determine the permalink pattern using Hugo config
-            hugo_project_path = content_dir.parent if content_dir.name == "content" else None
-            if hugo_project_path and hugo_project_path.exists():
-                pattern = HugoConfigReader.get_permalink_pattern(hugo_project_path, section)
+            if project_path and project_path.exists():
+                pattern = HugoConfigReader.get_permalink_pattern(project_path, section)
             else:
                 pattern = "/posts/:slug"
             
@@ -941,7 +959,10 @@ class LinkProcessor:
             
         except Exception as e:
             # Fallback to original behavior if any error occurs
+            import traceback
             logger.warning(f"Failed to generate Hugo permalink for {link.source_path}: {e}")
+            logger.debug(f"Detailed error traceback for {link.source_path}:")
+            logger.debug(traceback.format_exc())
             
             dest_rel_path = post_path.relative_to(content_dir)
             dest_uri = str(dest_rel_path.with_suffix(""))
