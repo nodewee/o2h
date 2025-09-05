@@ -9,6 +9,7 @@ import frontmatter
 from .code_block_detector import is_range_in_code_block
 from .logger import logger
 from .models import InternalLinkRegistry, LinkWord, NoteMetadata
+from .hugo_config import HugoConfigReader
 
 
 class InternalLinker:
@@ -23,19 +24,25 @@ class InternalLinker:
         self.registry = InternalLinkRegistry()
         self.max_links_per_article = max_links_per_article
         self.total_links_added = 0
+        self.hugo_project_path: Optional[Path] = None
         
     def build_link_registry(
         self, 
         note_files_map: Dict[Path, Path], 
-        content_dir: Path
+        content_dir: Path,
+        hugo_project_path: Optional[Path] = None
     ) -> None:
         """Build the internal link registry from all notes.
         
         Args:
             note_files_map: Mapping of note paths to post paths
             content_dir: Content directory path for URL generation
+            hugo_project_path: Path to the Hugo project directory
         """
         logger.info("Building internal link registry...")
+        
+        if hugo_project_path:
+            self.hugo_project_path = hugo_project_path
         
         for note_path, post_path in note_files_map.items():
             if not post_path:  # Skip notes that won't be converted
@@ -105,13 +112,43 @@ class InternalLinker:
         rel_path = post_path.relative_to(content_dir)
         url_path = str(rel_path.with_suffix(""))
         
+        # Extract slug from filename or use title
+        slug = note.metadata.get("slug", Path(rel_path).stem)
+        
+        # Extract section from path
+        section = "posts"
+        if len(rel_path.parts) > 1:
+            section = rel_path.parts[0]
+        
+        # Get date from metadata
+        date = note.metadata.get("date", "")
+        
+        # Get title from metadata
+        title = note.metadata.get("title", slug)
+        
+        # Determine the permalink pattern
+        if self.hugo_project_path and self.hugo_project_path.exists():
+            pattern = HugoConfigReader.get_permalink_pattern(self.hugo_project_path, section)
+        else:
+            pattern = "/posts/:slug"
+        
+        # Generate URL using the pattern
+        url = HugoConfigReader.generate_url_from_pattern(
+            pattern=pattern,
+            slug=slug,
+            date=date,
+            title=title,
+            section=section
+        )
+        
         # Handle language prefix for multilingual sites
         if lang:
-            if url_path.endswith(f".{lang}"):
-                url_path = url_path[:-len(f".{lang}")]
-            url_path = f"{lang}/{url_path}"
+            if url.startswith("/"):
+                url = f"/{lang}{url}"
+            else:
+                url = f"/{lang}/{url}"
         
-        return f"/{url_path}/"
+        return url
     
     def apply_internal_links(
         self, 

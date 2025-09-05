@@ -195,7 +195,11 @@ class ObsidianToHugoConverter:
             # Build internal link registry if enabled
             if self.internal_linker:
                 content_dir = self.config.hugo_project_path / "content"
-                self.internal_linker.build_link_registry(note_files_map, content_dir)
+                self.internal_linker.build_link_registry(
+                    note_files_map, 
+                    content_dir, 
+                    self.config.hugo_project_path
+                )
             
             # Generate Hugo/Zola posts
             self._generate_posts(note_files_map, folder_map)

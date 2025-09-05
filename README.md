@@ -18,11 +18,16 @@ Convert **O**bsidian notes **to** **H**ugo/Zola posts - A modern, type-safe Pyth
 
 ### 🔗 Internal Linking (NEW!)
 - **Automatic cross-referencing**: Define `link_words` in frontmatter to create automatic internal links
+- **Hugo Permalink Support**: Support custom permalink patterns from Hugo configuration files
 - **Smart word matching**: Supports both English word boundaries and Chinese text matching
 - **Conflict resolution**: Handle duplicate link words with priority system
 - **Self-link prevention**: Avoid linking to words defined by the current article
 - **Configurable limits**: Control maximum links per word per article (default: 1)
 - **Preserve existing links**: Skip words that are already part of existing links
+
+### 🔗 Obsidian Internal Links Enhancement
+- **Hugo Permalink Support**: `[[Note Name]]` and `[Link Text](note.md)` format internal links also support Hugo permalink configuration
+- **Smart URL Generation**: Automatically generate URLs according to permalink patterns from Hugo configuration
 
 ### 📁 Flexible Folder Management
 - Convert all folders in the notes library by default (automatically exclude template folders)

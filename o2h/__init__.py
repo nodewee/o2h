@@ -10,6 +10,7 @@ from .models import ConversionConfig
 from .linker import InternalLinker
 from .code_block_detector import CodeBlockDetector, detect_code_blocks, is_position_in_code_block, is_range_in_code_block
 from .ssg_detector import SSGDetector, SSGType, detect_ssg_type
+from .hugo_config import HugoConfigReader
 
 __all__ = [
     "ObsidianToHugoConverter",
@@ -22,6 +23,7 @@ __all__ = [
     "SSGDetector",
     "SSGType",
     "detect_ssg_type",
+    "HugoConfigReader",
     "__version__",
     "__title__",
 ]

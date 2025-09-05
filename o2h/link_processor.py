@@ -593,7 +593,7 @@ class LinkProcessor:
                 dest_uri = self._get_note_uri(link, note_files_map, content_dir)
                 if link.anchor:
                     dest_uri += f"#{link.anchor}"
-                modified_text = modified_text.replace(f"]({original_uri})", f"](/{dest_uri})")
+                modified_text = modified_text.replace(f"]({original_uri})", f"]({dest_uri})")
         
         # Replace HTML attribute links
         modified_text = self._replace_html_attribute_links(
@@ -733,7 +733,7 @@ class LinkProcessor:
                 dest_uri = self._get_note_uri(link, note_files_map, content_dir)
                 if link.anchor:
                     dest_uri += f"#{link.anchor}"
-                content = self._safe_replace_link(content, f"]({original_uri})", f"](/{dest_uri})")
+                content = self._safe_replace_link(content, f"]({original_uri})", f"]({dest_uri})")
         
         # Replace HTML attribute links
         content = self._replace_html_attribute_links(
@@ -800,7 +800,7 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path], 
         content_dir: Path
     ) -> str:
-        """Get URI for note link.
+        """Get URI for note link using Hugo permalink configuration.
         
         Args:
             link: InlineLink object
@@ -817,25 +817,79 @@ class LinkProcessor:
         if not post_path:
             return "#"
             
-        # Read target note to check for lang field
+        # Read target note for metadata
         try:
             import frontmatter
+            from .hugo_config import HugoConfigReader
+            
             target_note_content = link.source_path.read_text(encoding="utf-8")
             target_note = frontmatter.loads(target_note_content)
+            
+            # Extract metadata for URL generation
             target_lang = target_note.metadata.get("lang")
-        except Exception:
+            
+            # Get relative path and extract section
+            dest_rel_path = post_path.relative_to(content_dir)
+            
+            # Extract slug from filename or use title
+            slug = target_note.metadata.get("slug", Path(dest_rel_path).stem)
+            
+            # Extract section from path
+            section = "posts"
+            if len(dest_rel_path.parts) > 1:
+                section = dest_rel_path.parts[0]
+            
+            # Get date and title from metadata
+            date = target_note.metadata.get("date", "")
+            title = target_note.metadata.get("title", slug)
+            
+            # Determine the permalink pattern using Hugo config
+            hugo_project_path = content_dir.parent if content_dir.name == "content" else None
+            if hugo_project_path and hugo_project_path.exists():
+                pattern = HugoConfigReader.get_permalink_pattern(hugo_project_path, section)
+            else:
+                pattern = "/posts/:slug"
+            
+            # Generate URL using the pattern
+            url = HugoConfigReader.generate_url_from_pattern(
+                pattern=pattern,
+                slug=slug,
+                date=date,
+                title=title,
+                section=section
+            )
+            
+            # Handle language prefix for multilingual sites
+            if target_lang:
+                if url.startswith("/"):
+                    url = f"/{target_lang}{url}"
+                else:
+                    url = f"/{target_lang}/{url}"
+            
+            return urllib.parse.quote(url)
+            
+        except Exception as e:
+            # Fallback to original behavior if any error occurs
+            logger.warning(f"Failed to generate Hugo permalink for {link.source_path}: {e}")
+            
+            dest_rel_path = post_path.relative_to(content_dir)
+            dest_uri = str(dest_rel_path.with_suffix(""))
+            
+            # Handle language prefix for multilingual sites
             target_lang = None
-            
-        dest_rel_path = post_path.relative_to(content_dir)
-        dest_uri = str(dest_rel_path.with_suffix(""))
-        
-        # Handle language prefix for multilingual sites
-        if target_lang:
-            if dest_uri.endswith(f".{target_lang}"):
-                dest_uri = dest_uri[:-len(f".{target_lang}")]
-            dest_uri = f"{target_lang}/{dest_uri}"
-            
-        return urllib.parse.quote(dest_uri)
+            try:
+                target_note_content = link.source_path.read_text(encoding="utf-8")
+                target_note = frontmatter.loads(target_note_content)
+                target_lang = target_note.metadata.get("lang")
+            except Exception:
+                pass
+                
+            if target_lang:
+                if dest_uri.endswith(f".{target_lang}"):
+                    dest_uri = dest_uri[:-len(f".{target_lang}")]
+                dest_uri = f"{target_lang}/{dest_uri}"
+                
+            return urllib.parse.quote(dest_uri)
     
     def _safe_replace_link(self, content: str, old_text: str, new_text: str) -> str:
         """Safely replace link text, avoiding code blocks.
