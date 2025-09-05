@@ -148,6 +148,32 @@ class InternalLinker:
             else:
                 url = f"/{lang}/{url}"
         
+        # Ensure trailing slash for internal article links, handling anchors and query params
+        if '?' in url or '#' in url:
+            # Handle URLs with query params or anchors
+            if '?' in url and '#' in url:
+                # Both query and anchor
+                base_url, query_and_anchor = url.split('?', 1)
+                if not base_url.endswith("/"):
+                    base_url = base_url + "/"
+                url = base_url + "?" + query_and_anchor
+            elif '?' in url:
+                # Only query params
+                base_url, query = url.split('?', 1)
+                if not base_url.endswith("/"):
+                    base_url = base_url + "/"
+                url = base_url + "?" + query
+            else:  # '#' in url
+                # Only anchor
+                base_url, anchor = url.split('#', 1)
+                if not base_url.endswith("/"):
+                    base_url = base_url + "/"
+                url = base_url + "#" + anchor
+        else:
+            # Simple URL without query params or anchors
+            if not url.endswith("/"):
+                url = url + "/"
+        
         return url
     
     def apply_internal_links(

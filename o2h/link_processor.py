@@ -866,6 +866,32 @@ class LinkProcessor:
                 else:
                     url = f"/{target_lang}/{url}"
             
+            # Ensure trailing slash for internal article links, handling anchors and query params
+            if '?' in url or '#' in url:
+                # Handle URLs with query params or anchors
+                if '?' in url and '#' in url:
+                    # Both query and anchor
+                    base_url, query_and_anchor = url.split('?', 1)
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    url = base_url + "?" + query_and_anchor
+                elif '?' in url:
+                    # Only query params
+                    base_url, query = url.split('?', 1)
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    url = base_url + "?" + query
+                else:  # '#' in url
+                    # Only anchor
+                    base_url, anchor = url.split('#', 1)
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    url = base_url + "#" + anchor
+            else:
+                # Simple URL without query params or anchors
+                if not url.endswith("/"):
+                    url = url + "/"
+            
             return urllib.parse.quote(url)
             
         except Exception as e:
@@ -888,6 +914,32 @@ class LinkProcessor:
                 if dest_uri.endswith(f".{target_lang}"):
                     dest_uri = dest_uri[:-len(f".{target_lang}")]
                 dest_uri = f"{target_lang}/{dest_uri}"
+            
+            # Ensure trailing slash for internal article links in fallback, handling anchors and query params
+            if '?' in dest_uri or '#' in dest_uri:
+                # Handle URLs with query params or anchors
+                if '?' in dest_uri and '#' in dest_uri:
+                    # Both query and anchor
+                    base_url, query_and_anchor = dest_uri.split('?', 1)
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    dest_uri = base_url + "?" + query_and_anchor
+                elif '?' in dest_uri:
+                    # Only query params
+                    base_url, query = dest_uri.split('?', 1)
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    dest_uri = base_url + "?" + query
+                else:  # '#' in dest_uri
+                    # Only anchor
+                    base_url, anchor = dest_uri.split('#', 1)
+                    if not base_url.endswith("/"):
+                        base_url = base_url + "/"
+                    dest_uri = base_url + "#" + anchor
+            else:
+                # Simple URL without query params or anchors
+                if not dest_uri.endswith("/"):
+                    dest_uri = dest_uri + "/"
                 
             return urllib.parse.quote(dest_uri)
     
@@ -1016,6 +1068,31 @@ class LinkProcessor:
                     new_value = "/" + self._get_note_uri(link, note_files_map, content_dir)
                     if link.anchor:
                         new_value += f"#{link.anchor}"
+                    # Ensure trailing slash for internal article links, handling anchors and query params
+                    if '?' in new_value or '#' in new_value:
+                        # Handle URLs with query params or anchors
+                        if '?' in new_value and '#' in new_value:
+                            # Both query and anchor
+                            base_url, query_and_anchor = new_value.split('?', 1)
+                            if not base_url.endswith("/"):
+                                base_url = base_url + "/"
+                            new_value = base_url + "?" + query_and_anchor
+                        elif '?' in new_value:
+                            # Only query params
+                            base_url, query = new_value.split('?', 1)
+                            if not base_url.endswith("/"):
+                                base_url = base_url + "/"
+                            new_value = base_url + "?" + query
+                        else:  # '#' in new_value
+                            # Only anchor
+                            base_url, anchor = new_value.split('#', 1)
+                            if not base_url.endswith("/"):
+                                base_url = base_url + "/"
+                            new_value = base_url + "#" + anchor
+                    else:
+                        # Simple URL without query params or anchors
+                        if not new_value.endswith("/"):
+                            new_value = new_value + "/"
                 elif link.link_type == LinkType.ANCHOR:
                     new_value = f"#{link.anchor}"
                 else:
