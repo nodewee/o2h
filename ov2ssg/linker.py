@@ -35,6 +35,16 @@ class InternalLinker:
         self._markdown_link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
         self._html_link_pattern = re.compile(r'<a\s+[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>', re.IGNORECASE)
         
+    def _detect_custom_blocks(self, content: str) -> List[Tuple[int, int]]:
+        """Detect custom blocks like {% ... %} to ignore them during link insertion."""
+        # This pattern handles multiline blocks due to re.DOTALL
+        custom_block_pattern = re.compile(r'{%.*?%}', re.DOTALL)
+        return [(match.start(), match.end()) for match in custom_block_pattern.finditer(content)]
+
+    def _is_range_in_blocks(self, start: int, end: int, blocks: List[Tuple[int, int]]) -> bool:
+        """Check if a range [start, end) is inside any of the provided blocks."""
+        return any(block_start <= start and end <= block_end for block_start, block_end in blocks)
+
     def build_link_registry(
         self, 
         note_files_map: Dict[Path, Path], 
@@ -236,6 +246,9 @@ class InternalLinker:
         links_added_this_article = {}
         modified_content = content
         
+        # Detect custom blocks to ignore their content.
+        custom_blocks = self._detect_custom_blocks(modified_content)
+        
         # Sort link words by length (longest first) to avoid partial matches
         sorted_link_words = sorted(
             self.registry.link_words.items(),
@@ -257,7 +270,8 @@ class InternalLinker:
                 modified_content, 
                 link_word.word, 
                 link_word.target_url,
-                current_note_path
+                current_note_path,
+                custom_blocks
             )
             
             if added:
@@ -271,7 +285,8 @@ class InternalLinker:
         content: str, 
         word: str, 
         target_url: str,
-        current_note_path: Path
+        current_note_path: Path,
+        custom_blocks: List[Tuple[int, int]]
     ) -> Tuple[str, bool]:
         """Replace first occurrence of word with link.
         
@@ -280,6 +295,7 @@ class InternalLinker:
             word: Word to replace
             target_url: URL to link to
             current_note_path: Current note path for logging
+            custom_blocks: A list of (start, end) tuples for custom blocks to ignore.
             
         Returns:
             Tuple of (modified_content, was_replaced)
@@ -304,6 +320,10 @@ class InternalLinker:
             if is_range_in_code_block(content, start, end):
                 continue
             
+            # Check if this match is inside a custom block
+            if self._is_range_in_blocks(start, end, custom_blocks):
+                continue
+
             # Replace this occurrence
             matched_word = match.group(0)
             replacement = f"[{matched_word}]({target_url})"
