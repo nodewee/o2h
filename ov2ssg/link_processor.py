@@ -1,13 +1,19 @@
-"""Link processing utilities for OV2SSG converter."""
+"""Link processing utilities for OV2SSG converter.
+
+Optimizations:
+- Single-pass code block detection per content string
+- Per-note indexing of referenced URIs to avoid global scans on replacement
+- Cached reading of target note frontmatter for URL generation
+"""
 
 import html
 import re
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Set, Iterable
 from functools import lru_cache
 
-from .code_block_detector import is_range_in_code_block
+from .code_block_detector import is_range_in_code_block, CodeBlockDetector
 from .logger import logger
 from .models import InlineLink, LinkType
 from .utils import slugify_path
@@ -48,6 +54,8 @@ class LinkProcessor:
         self.obsidian_vault_path = obsidian_vault_path
         self.inline_links: Dict[str, InlineLink] = {}
         self.unresolved_links: List[str] = []  # 记录无法解析的链接
+        self.note_to_uris: Dict[str, Set[str]] = {}
+        self._detector = CodeBlockDetector()
         
         # Pre-compile regex patterns for performance
         self._wiki_link_pattern = re.compile(r'!*\[\[([^|\]]+)(?:\|[^\]]+)?\]\]')
@@ -75,7 +83,10 @@ class LinkProcessor:
         """
         # Convert wiki links to markdown links: [[file_path]] -> [file_path](file_path)
         content = self._wiki_link_pattern.sub(r"[\1](\1)", content)
-        
+
+        # Detect code blocks once
+        blocks = self._detector.detect_code_blocks(content)
+
         # Find all markdown links and check if they're in code blocks
         for match in self._markdown_link_pattern.finditer(content):
             original_uri = match.group(2)  # URI is the second group
@@ -83,11 +94,13 @@ class LinkProcessor:
             link_end = match.end()
             
             # Check if this link is inside a code block
-            if not is_range_in_code_block(content, link_start, link_end):
-                self._process_link(original_uri, note_folder, note_filepath)
+            if not self._is_range_in_blocks(link_start, link_end, blocks):
+                link = self._process_link(original_uri, note_folder, note_filepath)
+                if link:
+                    self._index_note_uri(note_filepath, original_uri)
         
         # Extract HTML attribute links
-        self._extract_html_links_from_content(content, note_folder, note_filepath)
+        self._extract_html_links_from_content(content, note_folder, note_filepath, blocks)
         
         return content
     
@@ -95,7 +108,8 @@ class LinkProcessor:
         self,
         content: str,
         note_folder: Path,
-        note_filepath: str
+        note_filepath: str,
+        blocks: Optional[List] = None
     ) -> None:
         """Extract links from HTML attributes in content.
         
@@ -110,7 +124,7 @@ class LinkProcessor:
             tag_end = tag_match.end()
             
             # Check if this HTML tag is inside a code block
-            if is_range_in_code_block(content, tag_start, tag_end):
+            if blocks is not None and self._is_range_in_blocks(tag_start, tag_end, blocks):
                 continue
                 
             tag_name = tag_match.group(1).lower()
@@ -125,7 +139,9 @@ class LinkProcessor:
                 if attr_name in HTML_LINK_ATTRIBUTES and attr_value:
                     # Decode HTML entities in the attribute value
                     decoded_value = html.unescape(attr_value)
-                    self._process_link(decoded_value, note_folder, note_filepath)
+                    link = self._process_link(decoded_value, note_folder, note_filepath)
+                    if link:
+                        self._index_note_uri(note_filepath, decoded_value)
     
     def extract_links_from_frontmatter(
         self,
@@ -185,15 +201,19 @@ class LinkProcessor:
                 
                 # Check if this link is inside a code block (for multiline frontmatter values)
                 if not is_range_in_code_block(value, link_start, link_end):
-                    self._process_link(original_uri, note_folder, note_filepath)
+                    link = self._process_link(original_uri, note_folder, note_filepath)
+                    if link:
+                        self._index_note_uri(note_filepath, original_uri)
             
             # Extract HTML attribute links from metadata
-            self._extract_html_links_from_content(value, note_folder, note_filepath)
+            self._extract_html_links_from_content(value, note_folder, note_filepath, None)
             
             # Also check if the string itself is a file path (direct file reference)
             # But only if it's not inside a code block
             if self._is_potential_file_path(value) and not is_range_in_code_block(value, 0, len(value)):
-                self._process_link(value, note_folder, note_filepath)
+                link = self._process_link(value, note_folder, note_filepath)
+                if link:
+                    self._index_note_uri(note_filepath, value)
                 
         elif isinstance(value, list):
             # Recursively process list items
@@ -293,7 +313,7 @@ class LinkProcessor:
         original_uri: str, 
         note_folder: Path, 
         note_filepath: str
-    ) -> None:
+    ) -> Optional[InlineLink]:
         """Process a single link.
         
         Args:
@@ -305,22 +325,24 @@ class LinkProcessor:
         
         if original_uri in self.inline_links:
             logger.debug(f"Skipping already processed link: {original_uri}")
-            return
+            return self.inline_links[original_uri]
             
         if not original_uri:
             logger.warning(f"Found empty link in {note_filepath}")
-            return
+            return None
             
         if self._is_external_link(original_uri):
             logger.debug(f"Skipping external link: {original_uri}")
-            return
+            return None
             
         link = self._create_link_object(original_uri, note_folder)
         if link:
             self.inline_links[original_uri] = link
             logger.debug(f"Stored link: {original_uri} -> {link}")
+            return link
         else:
             logger.debug(f"Failed to create link object for: {original_uri}")
+            return None
     
     def _is_external_link(self, uri: str) -> bool:
         """Check if URI is an external link."""
@@ -470,6 +492,7 @@ class LinkProcessor:
         hugo_project_path: Path,
         attachment_folder_name: str,
         config=None,
+        note_filepath: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Replace links in frontmatter metadata with final URLs.
         
@@ -506,7 +529,8 @@ class LinkProcessor:
             note_files_map,
             content_dir,
             attachment_rel_path,
-            config
+            config,
+            allowed_uris=self._get_allowed_uris(note_filepath)
         )
         
         return processed_metadata
@@ -517,7 +541,8 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path],
         content_dir: Path,
         attachment_rel_path: str,
-        config=None
+        config=None,
+        allowed_uris: Optional[Set[str]] = None,
     ) -> None:
         """Replace links in metadata dictionary, skipping ignored fields.
         
@@ -535,11 +560,11 @@ class LinkProcessor:
                 
             if isinstance(value, str):
                 metadata_dict[key] = self._replace_links_in_string(
-                    value, note_files_map, content_dir, attachment_rel_path, config
+                    value, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
                 )
             else:
                 self._replace_links_in_metadata_value(
-                    value, note_files_map, content_dir, attachment_rel_path, config
+                    value, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
                 )
     
     def _replace_links_in_metadata_value(
@@ -548,7 +573,8 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path],
         content_dir: Path,
         attachment_rel_path: str,
-        config=None
+        config=None,
+        allowed_uris: Optional[Set[str]] = None,
     ) -> None:
         """Recursively replace links in metadata values.
         
@@ -568,22 +594,22 @@ class LinkProcessor:
             for i, item in enumerate(value):
                 if isinstance(item, str):
                     value[i] = self._replace_links_in_string(
-                        item, note_files_map, content_dir, attachment_rel_path, config
+                        item, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
                     )
                 else:
                     self._replace_links_in_metadata_value(
-                        item, note_files_map, content_dir, attachment_rel_path, config
+                        item, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
                     )
         elif isinstance(value, dict):
             # Process nested dictionary values (no field filtering for nested dicts)
             for key, item_value in value.items():
                 if isinstance(item_value, str):
                     value[key] = self._replace_links_in_string(
-                        item_value, note_files_map, content_dir, attachment_rel_path, config
+                        item_value, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
                     )
                 else:
                     self._replace_links_in_metadata_value(
-                        item_value, note_files_map, content_dir, attachment_rel_path, config
+                        item_value, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
                     )
     
     def _replace_links_in_string(
@@ -592,7 +618,8 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path],
         content_dir: Path,
         attachment_rel_path: str,
-        config=None
+        config=None,
+        allowed_uris: Optional[Set[str]] = None,
     ) -> str:
         """Replace links in a string value.
         
@@ -609,8 +636,18 @@ class LinkProcessor:
         # Convert wiki links to markdown links first
         modified_text = re.sub(r"\[\[(.*?)\]\]", r"[\1](\1)", text)
         
-        # Replace markdown-format links
-        for original_uri, link in self.inline_links.items():
+        # Replace markdown-format links (restrict to allowed URIs if provided)
+        iterable: Iterable[Tuple[str, InlineLink]]
+        if allowed_uris is not None:
+            iterable = (
+                (uri, self.inline_links[uri])
+                for uri in allowed_uris
+                if uri in self.inline_links
+            )
+        else:
+            iterable = self.inline_links.items()
+
+        for original_uri, link in iterable:
             if f"]({original_uri})" not in modified_text:
                 continue
                 
@@ -635,11 +672,11 @@ class LinkProcessor:
         
         # Replace HTML attribute links
         modified_text = self._replace_html_attribute_links(
-            modified_text, note_files_map, content_dir, attachment_rel_path, config
+            modified_text, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
         )
         
         # Replace direct file path references (not in markdown link format)
-        for original_uri, link in self.inline_links.items():
+        for original_uri, link in iterable:
             # Skip if this is in markdown format (already handled above)
             if f"]({original_uri})" in text or f"[" in original_uri:
                 continue
@@ -720,6 +757,7 @@ class LinkProcessor:
         hugo_project_path: Path,
         attachment_folder_name: str,
         config=None,
+        note_filepath: Optional[str] = None,
     ) -> str:
         """Replace links in content with final URLs.
         
@@ -750,8 +788,18 @@ class LinkProcessor:
         video_extensions = {".mp4", ".webm", ".ogg"}
         video_template = self._get_video_template()
         
+        allowed_uris = self._get_allowed_uris(note_filepath)
+        if allowed_uris is not None:
+            iterable: Iterable[Tuple[str, InlineLink]] = (
+                (uri, self.inline_links[uri])
+                for uri in allowed_uris
+                if uri in self.inline_links
+            )
+        else:
+            iterable = self.inline_links.items()
+
         # Replace markdown links
-        for original_uri, link in self.inline_links.items():
+        for original_uri, link in iterable:
             if link.link_type == LinkType.FILE:
                 if config:
                     dest_uri = self._get_attachment_url_path(config, link.dest_filename)
@@ -778,7 +826,7 @@ class LinkProcessor:
         
         # Replace HTML attribute links
         content = self._replace_html_attribute_links(
-            content, note_files_map, content_dir, attachment_rel_path, config
+            content, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
         )
         
         logger.debug(f"   Link replacement complete")
@@ -1053,7 +1101,8 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path],
         content_dir: Path,
         attachment_rel_path: str,
-        config=None
+        config=None,
+        allowed_uris: Optional[Set[str]] = None
     ) -> str:
         """Replace links in HTML attributes.
         
@@ -1083,7 +1132,7 @@ class LinkProcessor:
             
             # Replace attribute values
             modified_attributes = self._replace_attribute_links(
-                attributes_str, note_files_map, content_dir, attachment_rel_path, config
+                attributes_str, note_files_map, content_dir, attachment_rel_path, config, allowed_uris
             )
             
             return f"<{tag_name} {modified_attributes}>"
@@ -1096,7 +1145,8 @@ class LinkProcessor:
         note_files_map: Dict[Path, Path],
         content_dir: Path,
         attachment_rel_path: str,
-        config=None
+        config=None,
+        allowed_uris: Optional[Set[str]] = None
     ) -> str:
         """Replace links in HTML attribute string.
         
@@ -1126,7 +1176,7 @@ class LinkProcessor:
             decoded_value = html.unescape(attr_value)
             
             # Check if this value corresponds to a link we need to replace
-            if decoded_value in self.inline_links:
+            if decoded_value in self.inline_links and (allowed_uris is None or decoded_value in allowed_uris):
                 link = self.inline_links[decoded_value]
                 
                 if link.link_type == LinkType.FILE:
@@ -1183,3 +1233,40 @@ class LinkProcessor:
             return match.group(0)
         
         return re.sub(attr_pattern, replace_attr, attributes_str)
+
+    # ---- Internal helpers ----
+    def _index_note_uri(self, note_filepath: str, uri: str) -> None:
+        """Record that a note references a specific URI."""
+        try:
+            s = self.note_to_uris.get(note_filepath)
+            if s is None:
+                s = set()
+                self.note_to_uris[note_filepath] = s
+            s.add(uri)
+        except Exception:
+            # Be resilient; indexing is best-effort only
+            pass
+
+    def _get_allowed_uris(self, note_filepath: Optional[str]) -> Optional[Set[str]]:
+        if not note_filepath:
+            return None
+        return self.note_to_uris.get(note_filepath)
+
+    def _is_range_in_blocks(self, start: int, end: int, blocks: List) -> bool:
+        """Check whether a [start, end) range is within any known code block."""
+        for b in blocks:
+            if b.start_pos <= start and end <= b.end_pos:
+                return True
+        return False
+
+@lru_cache(maxsize=2048)
+def _read_note_frontmatter_cached(path_str: str) -> Dict[str, Any]:
+    """Read and cache frontmatter for a note path (metadata only)."""
+    import frontmatter as _fm
+    p = Path(path_str)
+    try:
+        content = p.read_text(encoding="utf-8")
+        note = _fm.loads(content)
+        return note.metadata or {}
+    except Exception:
+        return {}

@@ -648,14 +648,19 @@ class ObsidianToHugoConverter:
                 logger.error(error_msg)
                 self.result.errors.append(error_msg)
         
+        # Build index: source_path -> list of link refs for O(1) updates
+        source_to_links: Dict[Path, List] = {}
+        for link in self.link_processor.inline_links.values():
+            if link.link_type == LinkType.FILE and link.source_path:
+                source_to_links.setdefault(link.source_path, []).append(link)
+
         # Execute batch file operations
         for source_path, dest_path, dest_filename in file_operations:
             try:
                 shutil.copyfile(source_path, dest_path)
-                # Update link with destination filename
-                for link in self.link_processor.inline_links.values():
-                    if link.source_path == source_path:
-                        link.dest_filename = dest_filename
+                # Update all link objects for this source in O(k)
+                for link in source_to_links.get(source_path, []):
+                    link.dest_filename = dest_filename
                 self.result.copied_attachments += 1
                 
             except Exception as e:
@@ -720,15 +725,20 @@ class ObsidianToHugoConverter:
                 logger.error(error_msg)
                 self.result.errors.append(error_msg)
         
+        # Reuse the same index for progress path
+        source_to_links: Dict[Path, List] = {}
+        for link in self.link_processor.inline_links.values():
+            if link.link_type == LinkType.FILE and link.source_path:
+                source_to_links.setdefault(link.source_path, []).append(link)
+
         # Execute batch operations with progress
         for i, (source_path, dest_path, dest_filename) in enumerate(file_operations, 1):
             try:
                 shutil.copyfile(source_path, dest_path)
                 
                 # Update all links pointing to this source
-                for link in self.link_processor.inline_links.values():
-                    if link.source_path == source_path:
-                        link.dest_filename = dest_filename
+                for link in source_to_links.get(source_path, []):
+                    link.dest_filename = dest_filename
                 
                 self.result.copied_attachments += 1
                 
@@ -949,6 +959,7 @@ class ObsidianToHugoConverter:
                 self.config.hugo_project_path,
                 self.config.attachment_folder_name,
                 self.config,
+                note_filepath=str(note_path),
             )
             logger.debug(f"   Content processing complete")
             
@@ -960,6 +971,7 @@ class ObsidianToHugoConverter:
                 self.config.hugo_project_path,
                 self.config.attachment_folder_name,
                 self.config,
+                note_filepath=str(note_path),
             )
             logger.debug(f"   Frontmatter processing complete")
             

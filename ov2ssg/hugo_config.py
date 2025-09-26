@@ -1,15 +1,22 @@
-"""Hugo configuration reader and permalink utilities."""
+"""Hugo configuration reader and permalink utilities.
+
+Adds lightweight in-memory caching to avoid repeatedly parsing project
+configuration files and recomputing permalink patterns.
+"""
 
 import yaml
 import toml
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 
 class HugoConfigReader:
     """Reads and parses Hugo configuration files."""
     
     CONFIG_FILENAMES = ["config.yml", "config.yaml", "config.toml"]
+    # In-memory caches keyed by resolved project path
+    _config_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    _permalink_cache: Dict[Tuple[str, str], str] = {}
     
     @classmethod
     def read_config(cls, hugo_project_path: Path) -> Optional[Dict[str, Any]]:
@@ -21,17 +28,26 @@ class HugoConfigReader:
         Returns:
             Configuration dictionary or None if no config found
         """
+        key = str(hugo_project_path.resolve())
+        if key in cls._config_cache:
+            return cls._config_cache[key]
+
         for config_filename in cls.CONFIG_FILENAMES:
             config_path = hugo_project_path / config_filename
             if config_path.exists():
                 try:
                     if config_filename.endswith('.toml'):
-                        return toml.loads(config_path.read_text(encoding='utf-8'))
+                        config = toml.loads(config_path.read_text(encoding='utf-8'))
+                        cls._config_cache[key] = config
+                        return config
                     else:  # .yml or .yaml
-                        return yaml.safe_load(config_path.read_text(encoding='utf-8'))
+                        config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+                        cls._config_cache[key] = config
+                        return config
                 except (OSError, yaml.YAMLError, toml.TomlDecodeError) as e:
                     # Continue to try other formats if parsing fails
                     continue
+        cls._config_cache[key] = None
         return None
     
     @classmethod
@@ -45,21 +61,29 @@ class HugoConfigReader:
         Returns:
             Permalink pattern string, defaults to "/posts/:slug" if not found
         """
+        cache_key = (str(hugo_project_path.resolve()), content_type)
+        if cache_key in cls._permalink_cache:
+            return cls._permalink_cache[cache_key]
+
         config = cls.read_config(hugo_project_path)
         if not config:
-            return "/posts/:slug"
+            cls._permalink_cache[cache_key] = "/posts/:slug"
+            return cls._permalink_cache[cache_key]
         
         # Get permalinks configuration
         permalinks = config.get("permalinks", {})
         if not isinstance(permalinks, dict):
-            return "/posts/:slug"
+            cls._permalink_cache[cache_key] = "/posts/:slug"
+            return cls._permalink_cache[cache_key]
         
         # Get the specific content type pattern
         pattern = permalinks.get(content_type)
         if not pattern or not isinstance(pattern, str):
-            return "/posts/:slug"
+            cls._permalink_cache[cache_key] = "/posts/:slug"
+            return cls._permalink_cache[cache_key]
         
-        return pattern.strip()
+        cls._permalink_cache[cache_key] = pattern.strip()
+        return cls._permalink_cache[cache_key]
     
     @classmethod
     def generate_url_from_pattern(

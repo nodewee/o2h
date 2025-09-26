@@ -1,4 +1,4 @@
-"""Zola configuration reader and URL utilities."""
+"""Zola configuration reader and URL utilities with simple caching."""
 
 import toml
 from pathlib import Path
@@ -9,6 +9,9 @@ class ZolaConfigReader:
     """Reads and parses Zola configuration files."""
     
     CONFIG_FILENAME = "config.toml"
+    _config_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    _base_url_cache: Dict[str, str] = {}
+    _taxonomies_cache: Dict[str, Dict[str, str]] = {}
     
     @classmethod
     def read_config(cls, zola_project_path: Path) -> Optional[Dict[str, Any]]:
@@ -20,13 +23,21 @@ class ZolaConfigReader:
         Returns:
             Configuration dictionary or None if no config found
         """
+        key = str(zola_project_path.resolve())
+        if key in cls._config_cache:
+            return cls._config_cache[key]
+
         config_path = zola_project_path / cls.CONFIG_FILENAME
         if not config_path.exists():
+            cls._config_cache[key] = None
             return None
             
         try:
-            return toml.loads(config_path.read_text(encoding='utf-8'))
+            config = toml.loads(config_path.read_text(encoding='utf-8'))
+            cls._config_cache[key] = config
+            return config
         except (OSError, toml.TomlDecodeError) as e:
+            cls._config_cache[key] = None
             return None
     
     @classmethod
@@ -39,12 +50,19 @@ class ZolaConfigReader:
         Returns:
             Base URL string, defaults to "/" if not found
         """
+        key = str(zola_project_path.resolve())
+        if key in cls._base_url_cache:
+            return cls._base_url_cache[key]
+
         config = cls.read_config(zola_project_path)
         if not config:
-            return "/"
+            cls._base_url_cache[key] = "/"
+            return cls._base_url_cache[key]
         
         base_url = config.get("base_url", "/")
-        return base_url.rstrip("/") + "/"
+        result = base_url.rstrip("/") + "/"
+        cls._base_url_cache[key] = result
+        return result
     
     @classmethod
     def get_taxonomies(cls, zola_project_path: Path) -> Dict[str, str]:
@@ -56,9 +74,14 @@ class ZolaConfigReader:
         Returns:
             Dictionary mapping taxonomy names to their plural forms
         """
+        key = str(zola_project_path.resolve())
+        if key in cls._taxonomies_cache:
+            return cls._taxonomies_cache[key]
+
         config = cls.read_config(zola_project_path)
         if not config:
-            return {}
+            cls._taxonomies_cache[key] = {}
+            return cls._taxonomies_cache[key]
         
         taxonomies = config.get("taxonomies", [])
         if isinstance(taxonomies, list):
@@ -71,9 +94,11 @@ class ZolaConfigReader:
                         taxonomy_map[name] = plural
                 elif isinstance(item, str):
                     taxonomy_map[item] = item + "s"
-            return taxonomy_map
+            cls._taxonomies_cache[key] = taxonomy_map
+            return cls._taxonomies_cache[key]
         
-        return {}
+        cls._taxonomies_cache[key] = {}
+        return cls._taxonomies_cache[key]
     
     @classmethod
     def generate_url_from_path(

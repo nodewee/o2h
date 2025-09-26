@@ -39,6 +39,9 @@ class SSGDetector:
             project_path: Path to the SSG project directory
         """
         self.project_path = project_path.resolve()
+        # Initialize class-level cache once
+        if not hasattr(self.__class__, "_detection_cache"):
+            self.__class__._detection_cache = {}
     
     def detect_ssg_type(self) -> SSGType:
         """Detect SSG type using the complete detection algorithm.
@@ -50,16 +53,25 @@ class SSGDetector:
         Returns:
             Detected SSG type (HUGO, ZOLA, or UNKNOWN)
         """
+        # Cached result first
+        key = str(self.project_path)
+        cached = self.__class__._detection_cache.get(key)
+        if cached is not None:
+            return cached
+
         # Step 1: Try to detect from configuration files
         config_type = self._detect_from_config_files()
         if config_type != SSGType.UNKNOWN:
+            self.__class__._detection_cache[key] = config_type
             return config_type
         
         # Step 2: Try to detect from frontmatter format
         frontmatter_type = self._detect_from_frontmatter()
         if frontmatter_type != SSGType.UNKNOWN:
+            self.__class__._detection_cache[key] = frontmatter_type
             return frontmatter_type
         
+        self.__class__._detection_cache[key] = SSGType.UNKNOWN
         return SSGType.UNKNOWN
     
     def _detect_from_config_files(self) -> SSGType:
